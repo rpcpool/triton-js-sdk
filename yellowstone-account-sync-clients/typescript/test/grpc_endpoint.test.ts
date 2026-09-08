@@ -4,11 +4,11 @@ import { normalizeGrpcEndpoint } from "../src/transport/grpc";
 describe("normalizeGrpcEndpoint", () => {
   it("uses host token path as grpc x-token metadata", () => {
     const normalized = normalizeGrpcEndpoint(
-      "https://api.example.com/abcdTokenWhatever",
+      "https://api.example.com/yourToken",
     );
 
     expect(normalized.target).toBe("api.example.com");
-    expect(normalized.metadata.get("x-token")).toEqual(["abcdTokenWhatever"]);
+    expect(normalized.metadata.get("x-token")).toEqual(["yourToken"]);
   });
 
   it("does not set token metadata when endpoint has no path", () => {

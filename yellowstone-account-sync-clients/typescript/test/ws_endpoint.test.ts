@@ -14,8 +14,8 @@ describe("deriveWebSocketEndpoint", () => {
   });
 
   it("preserves rpc endpoint token path when mapping to websocket", () => {
-    expect(deriveWebSocketEndpoint("https://example.com/abcdTokenWhatever")).toBe(
-      "wss://example.com/abcdTokenWhatever",
+    expect(deriveWebSocketEndpoint("https://example.com/yourToken")).toBe(
+      "wss://example.com/yourToken",
     );
   });
 });
@@ -23,28 +23,28 @@ describe("deriveWebSocketEndpoint", () => {
 describe("normalizeWsSubscriptionEndpoint", () => {
   it("inserts YellowstoneAccountSyncService/ws after token path segment", () => {
     const endpoint = normalizeWsSubscriptionEndpoint(
-      "ws://api.example.com/abcdTokenWhatever",
+      "ws://api.example.com/yourToken",
     );
     expect(endpoint).toBe(
-      "ws://api.example.com/abcdTokenWhatever/YellowstoneAccountSyncService/ws",
+      "ws://api.example.com/yourToken/YellowstoneAccountSyncService/ws",
     );
   });
 
   it("keeps endpoint unchanged when token-first service path is already present", () => {
     const endpoint = normalizeWsSubscriptionEndpoint(
-      "wss://example.com/abcdTokenWhatever/YellowstoneAccountSyncService/ws",
+      "wss://example.com/yourToken/YellowstoneAccountSyncService/ws",
     );
     expect(endpoint).toBe(
-      "wss://example.com/abcdTokenWhatever/YellowstoneAccountSyncService/ws",
+      "wss://example.com/yourToken/YellowstoneAccountSyncService/ws",
     );
   });
 
   it("normalizes a derived tokenized rpc endpoint to the websocket service path", () => {
     const endpoint = normalizeWsSubscriptionEndpoint(
-      deriveWebSocketEndpoint("https://example.com/abcdTokenWhatever"),
+      deriveWebSocketEndpoint("https://example.com/yourToken"),
     );
     expect(endpoint).toBe(
-      "wss://example.com/abcdTokenWhatever/YellowstoneAccountSyncService/ws",
+      "wss://example.com/yourToken/YellowstoneAccountSyncService/ws",
     );
   });
 });

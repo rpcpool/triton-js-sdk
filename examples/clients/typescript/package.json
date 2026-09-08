@@ -1,0 +1,28 @@
+{
+  "name": "yellowstone-account-sync-typescript-examples",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "example:ws": "tsx src/get_account_info_ws.ts",
+    "example:grpc": "tsx src/get_account_info_grpc.ts",
+    "example:grpc:parsed": "tsx src/get_parsed_account_info_grpc.ts",
+    "example:grpc:data-slice": "tsx src/get_account_info_data_slice_grpc.ts",
+    "example:grpc:min-context-slot": "tsx src/get_account_info_min_context_slot_grpc.ts",
+    "example:multiple:ws": "tsx src/get_multiple_accounts_info_ws.ts",
+    "example:multiple:grpc": "tsx src/get_multiple_accounts_info_grpc.ts",
+    "example:multiple:grpc:parsed": "tsx src/get_multiple_parsed_accounts_grpc.ts",
+    "example:multiple:grpc:data-slice": "tsx src/get_multiple_accounts_info_data_slice_grpc.ts",
+    "example:multiple:grpc:min-context-slot": "tsx src/get_multiple_accounts_info_min_context_slot_grpc.ts",
+    "example:grpc:lifecycle": "tsx src/account_lifecycle_grpc.ts",
+    "example:compare:get-account-info": "tsx src/compare_get_account_info_latency.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "@triton-one/triton-sdk": "file:../../../yellowstone-account-sync-clients/typescript"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.2"
+  }
+}

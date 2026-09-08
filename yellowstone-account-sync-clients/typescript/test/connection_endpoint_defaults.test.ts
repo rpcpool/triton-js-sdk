@@ -81,34 +81,34 @@ describe("Connection account-sync endpoint defaults", () => {
   });
 
   it("node websocket transport receives the derived rpc endpoint when subscriptionEndpoint is omitted", () => {
-    new NodeConnection("https://api.example.com/abcdTokenWhatever", {
+    new NodeConnection("https://api.example.com/yourToken", {
       wsEndpoint: "ws://ignored.example.com/legacy",
       accountSync: { transport: AccountSyncTransports.WS }
     });
 
     expect(createCapturedTransport().endpoint).toBe(
-      "wss://api.example.com/abcdTokenWhatever"
+      "wss://api.example.com/yourToken"
     );
   });
 
   it("browser websocket transport receives the derived rpc endpoint when subscriptionEndpoint is omitted", () => {
-    new BrowserConnection("https://api.example.com/abcdTokenWhatever", {
+    new BrowserConnection("https://api.example.com/yourToken", {
       wsEndpoint: "ws://ignored.example.com/legacy",
       accountSync: { transport: AccountSyncTransports.WS }
     });
 
     expect(createCapturedTransport().endpoint).toBe(
-      "wss://api.example.com/abcdTokenWhatever"
+      "wss://api.example.com/yourToken"
     );
   });
 
   it("node grpc transport receives the rpc endpoint when subscriptionEndpoint is omitted", () => {
-    new NodeConnection("https://api.example.com/abcdTokenWhatever", {
+    new NodeConnection("https://api.example.com/yourToken", {
       accountSync: { transport: AccountSyncTransports.GRPC }
     });
 
     expect(createCapturedTransport().endpoint).toBe(
-      "https://api.example.com/abcdTokenWhatever"
+      "https://api.example.com/yourToken"
     );
   });
 
