@@ -1,0 +1,10 @@
+target/
+.vscode
+
+*yellowstone_account_sync_account_encoding_wasm*
+node_modules/
+dist/
+.env
+
+yellowstone-account-sync-clients/typescript/src/wasm/account_encoding/
+yellowstone-account-sync-clients/typescript/src/generated
