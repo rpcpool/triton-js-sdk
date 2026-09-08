@@ -1,0 +1,55 @@
+{
+  "name": "@triton-one/triton-sdk",
+  "version": "0.0.1",
+  "description": "Solana web3.js compatible SDK client for Triton One services",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./types/browser.d.ts",
+        "default": "./dist/browser.js"
+      },
+      "node": {
+        "types": "./types/node.d.ts",
+        "default": "./dist/node.js"
+      },
+      "default": {
+        "types": "./types/node.d.ts",
+        "default": "./dist/node.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "types",
+    "README.md"
+  ],
+  "scripts": {
+    "generate:proto": "mkdir -p src/generated/grpc && protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=bigint --ts_proto_opt=outputServices=none --ts_proto_opt=esModuleInterop=true --experimental_allow_proto3_optional --ts_proto_out=src/generated/grpc -I ../../yellowstone-account-sync-proto/proto -I ../../yellowstone-account-sync-proto/proto/yellowstone-grpc/yellowstone-grpc-proto/proto geyser.proto solana-storage.proto && protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=bigint --ts_proto_opt=outputServices=grpc-js --ts_proto_opt=emitImportedFiles=false --ts_proto_opt=esModuleInterop=true --experimental_allow_proto3_optional --ts_proto_out=src/generated/grpc -I ../../yellowstone-account-sync-proto/proto -I ../../yellowstone-account-sync-proto/proto/yellowstone-grpc/yellowstone-grpc-proto/proto account_sync.proto",
+    "build": "npm run generate:proto && npm run build:wasm && tsup && npm run copy:wasm",
+    "build:wasm": "cargo build --manifest-path account-encoding-wasm/Cargo.toml --target wasm32-unknown-unknown --release && wasm-bindgen --target web --out-dir src/wasm/account_encoding account-encoding-wasm/target/wasm32-unknown-unknown/release/yellowstone_account_sync_account_encoding_wasm.wasm",
+    "copy:wasm": "mkdir -p dist/wasm/account_encoding && cp src/wasm/account_encoding/yellowstone_account_sync_account_encoding_wasm_bg.wasm dist/wasm/account_encoding/",
+    "typecheck": "npm run generate:proto && tsc --noEmit && npm run test:types",
+    "test": "npm run test:unit",
+    "test:unit": "npm run generate:proto && node ./node_modules/vitest/vitest.mjs run",
+    "test:live": "npm run generate:proto && node ./node_modules/vitest/vitest.mjs run --config vitest.live.config.ts",
+    "test:types": "tsc --noEmit -p test/types/tsconfig.node.json && tsc --noEmit -p test/types/tsconfig.browser.json"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.13.0",
+    "@grpc/grpc-js": "^1.14.1",
+    "@solana/web3.js": "^1.98.4",
+    "buffer": "^6.0.3",
+    "dotenv": "^17.4.2",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/ws": "^8.18.1",
+    "ts-proto": "^2.8.3",
+    "tsup": "^8.5.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}
