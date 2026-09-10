@@ -44,7 +44,6 @@ async function main(): Promise<void> {
       initialAccounts: [],
       ...ACCOUNT_SYNC_LIMITS,
       dynamicSubscriptionTtlMs: 5_000,
-      maxAccountsPerCommitment: 2,
       grpc: GRPC_CHANNEL_OPTIONS,
     },
   });

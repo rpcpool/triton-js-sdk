@@ -3,10 +3,7 @@ import {
   type AccountBufferObservation,
   type AccountBufferReadResult
 } from "./account_buffer";
-import {
-  AccountSyncAccountLimitError,
-  AccountSyncReadTimeoutError
-} from "./errors";
+import { AccountSyncReadTimeoutError } from "./errors";
 import type {
   AccountSyncInitialStatePlugin,
   InitialStateHydrationContext
@@ -28,7 +25,6 @@ const DEFAULT_RECONNECT_INITIAL_DELAY_MS = 100;
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 5_000;
 const DEFAULT_CLOSE_TIMEOUT_MS = 5_000;
 const DEFAULT_DYNAMIC_SUBSCRIPTION_TTL_MS = 60_000;
-const DEFAULT_MAX_ACCOUNTS_PER_COMMITMENT = 10_000;
 
 export interface AccountSyncCoreSettings {
   transportFactory: AccountSubscriptionTransportFactory;
@@ -42,7 +38,6 @@ export interface AccountSyncCoreSettings {
   reconnectMaxDelayMs?: number;
   closeTimeoutMs?: number;
   dynamicSubscriptionTtlMs?: number;
-  maxAccountsPerCommitment?: number;
   onAccountsInvalidated?: (
     accountIds: readonly string[],
     commitment: AccountSyncCommitment
@@ -102,7 +97,6 @@ export class AccountSyncCore {
   private readonly reconnectMaxDelayMs: number;
   private readonly closeTimeoutMs: number;
   private readonly dynamicSubscriptionTtlMs: number;
-  private readonly maxAccountsPerCommitment: number;
   private readonly onAccountsInvalidated?: AccountSyncCoreSettings["onAccountsInvalidated"];
   private readonly lifecycleAbortController = new AbortController();
 
@@ -126,26 +120,11 @@ export class AccountSyncCore {
     this.closeTimeoutMs = settings.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
     this.dynamicSubscriptionTtlMs =
       settings.dynamicSubscriptionTtlMs ?? DEFAULT_DYNAMIC_SUBSCRIPTION_TTL_MS;
-    this.maxAccountsPerCommitment =
-      settings.maxAccountsPerCommitment ?? DEFAULT_MAX_ACCOUNTS_PER_COMMITMENT;
     this.onAccountsInvalidated = settings.onAccountsInvalidated;
     assertPositiveSafeInteger(
       this.dynamicSubscriptionTtlMs,
       "dynamicSubscriptionTtlMs"
     );
-    assertPositiveSafeInteger(
-      this.maxAccountsPerCommitment,
-      "maxAccountsPerCommitment"
-    );
-    if (
-      new Set(settings.initialAccountIds).size > this.maxAccountsPerCommitment
-    ) {
-      throw createAccountLimitError(
-        settings.commitment,
-        this.maxAccountsPerCommitment
-      );
-    }
-
     const defaultLane = this.createCommitmentLane(
       settings.commitment,
       settings.initialAccountIds
@@ -168,23 +147,6 @@ export class AccountSyncCore {
     const lane = this.getOrCreateCommitmentLane(commitment, []);
     await this.enqueueLaneOperation(lane, async () => {
       const nextPinned = new Set([...lane.pinnedAccountIds, ...accountIds]);
-      if (nextPinned.size > this.maxAccountsPerCommitment) {
-        throw createAccountLimitError(commitment, this.maxAccountsPerCommitment);
-      }
-      const protectedAccountIds = new Set(
-        [...lane.leasedAccountExpiresAtMs.keys()].filter((accountId) =>
-          hasActiveRead(lane, accountId)
-        )
-      );
-      for (const accountId of nextPinned) {
-        protectedAccountIds.delete(accountId);
-      }
-      if (
-        nextPinned.size + protectedAccountIds.size >
-        this.maxAccountsPerCommitment
-      ) {
-        throw createAccountLimitError(commitment, this.maxAccountsPerCommitment);
-      }
       for (const accountId of accountIds) {
         if (!this.hasAccountOwnership(lane, accountId)) {
           this.startAccountOwnership(lane, accountId);
@@ -192,7 +154,6 @@ export class AccountSyncCore {
         lane.leasedAccountExpiresAtMs.delete(accountId);
       }
       lane.pinnedAccountIds = nextPinned;
-      this.evictLeasesToFit(lane);
       if (!this.syncRegistryFromOwnership(lane)) {
         this.scheduleLeaseExpiry(lane);
         return;
@@ -235,9 +196,6 @@ export class AccountSyncCore {
     accountIds: readonly string[],
     commitment: AccountSyncCommitment = this.defaultCommitment
   ): Promise<void> {
-    if (new Set(accountIds).size > this.maxAccountsPerCommitment) {
-      throw createAccountLimitError(commitment, this.maxAccountsPerCommitment);
-    }
     const lane = this.getOrCreateCommitmentLane(commitment, []);
     await this.enqueueLaneOperation(lane, async () => {
       const nextPinned = new Set(accountIds);
@@ -509,32 +467,13 @@ export class AccountSyncCore {
       if (!shouldSubscribe || lane.pinnedAccountIds.has(accountId)) {
         continue;
       }
-      if (!lane.leasedAccountExpiresAtMs.has(accountId)) {
-        while (
-          lane.pinnedAccountIds.size +
-            lane.leasedAccountExpiresAtMs.size >=
-          this.maxAccountsPerCommitment
-        ) {
-          const evicted = this.evictOldestLease(lane, new Set([accountId]));
-          if (!evicted) {
-            break;
-          }
-        }
+      if (!this.hasAccountOwnership(lane, accountId)) {
+        this.startAccountOwnership(lane, accountId);
       }
-      if (
-        lane.leasedAccountExpiresAtMs.has(accountId) ||
-        lane.pinnedAccountIds.size +
-            lane.leasedAccountExpiresAtMs.size <
-          this.maxAccountsPerCommitment
-      ) {
-        if (!this.hasAccountOwnership(lane, accountId)) {
-          this.startAccountOwnership(lane, accountId);
-        }
-        lane.leasedAccountExpiresAtMs.set(
-          accountId,
-          now + this.dynamicSubscriptionTtlMs
-        );
-      }
+      lane.leasedAccountExpiresAtMs.set(
+        accountId,
+        now + this.dynamicSubscriptionTtlMs
+      );
     }
     const changed = this.syncRegistryFromOwnership(lane);
     this.scheduleLeaseExpiry(lane);
@@ -563,43 +502,6 @@ export class AccountSyncCore {
       }
     }
     this.queueOwnershipSync(lane);
-  }
-
-  private evictLeasesToFit(lane: CommitmentLane): void {
-    while (
-      lane.pinnedAccountIds.size + lane.leasedAccountExpiresAtMs.size >
-      this.maxAccountsPerCommitment
-    ) {
-      if (!this.evictOldestLease(lane, lane.pinnedAccountIds)) {
-        break;
-      }
-    }
-  }
-
-  private evictOldestLease(
-    lane: CommitmentLane,
-    excludedAccountIds: ReadonlySet<string>
-  ): string | null {
-    let oldestAccountId: string | null = null;
-    let oldestExpiry = Number.POSITIVE_INFINITY;
-    for (const [accountId, expiresAtMs] of lane.leasedAccountExpiresAtMs) {
-      if (
-        excludedAccountIds.has(accountId) ||
-        hasActiveRead(lane, accountId)
-      ) {
-        continue;
-      }
-      if (expiresAtMs < oldestExpiry) {
-        oldestAccountId = accountId;
-        oldestExpiry = expiresAtMs;
-      }
-    }
-    if (!oldestAccountId) {
-      return null;
-    }
-    this.invalidateAccountOwnership(lane, oldestAccountId);
-    this.notifyAccountsInvalidated(lane, [oldestAccountId]);
-    return oldestAccountId;
   }
 
   private syncRegistryFromOwnership(lane: CommitmentLane): boolean {
@@ -1481,13 +1383,6 @@ function isNewerDecodedUpdate(
     (incoming.slot === current.slot &&
       incoming.writeVersion > current.writeVersion)
   );
-}
-
-function createAccountLimitError(
-  commitment: AccountSyncCommitment,
-  limit: number
-): Error {
-  return new AccountSyncAccountLimitError(commitment, limit);
 }
 
 function assertPositiveSafeInteger(value: number, name: string): void {

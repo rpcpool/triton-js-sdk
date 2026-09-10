@@ -133,7 +133,7 @@ validator-to-client latency.
   result.
 - Read-created subscriptions expire after `dynamicSubscriptionTtlMs` when they
   are idle. Pinned accounts stay until removed.
-- Account state is bounded by `maxAccountsPerCommitment`.
+- The client does not set a fixed limit on the number of cached accounts.
 - `removeAccounts` releases the subscription and cached state after active reads
   finish. Re-adding the account obtains current state.
 - `connection.close()` owns its shutdown limit. The examples do not hide a
@@ -149,7 +149,6 @@ Most examples use these account-sync settings:
 | `connectTimeoutMs` | `10000` |
 | `closeTimeoutMs` | `5000` |
 | `dynamicSubscriptionTtlMs` | `60000` |
-| `maxAccountsPerCommitment` | `10000` |
 
 The gRPC examples also use:
 
@@ -437,8 +436,8 @@ npm run example:grpc:lifecycle -- [--rpc-endpoint <rpc_endpoint>] [account] [com
 
 The example adds and reads an account, removes it, then re-adds it before the
 next read. This matters because a read made while the account is removed creates
-a new temporary lease. The example also uses a small account limit and a short
-dynamic lease so those controls are easy to find in the code.
+a new temporary lease. The example uses a short dynamic lease so that control is
+easy to find in the code.
 
 ## Notes
 

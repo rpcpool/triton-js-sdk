@@ -1,7 +1,4 @@
-import {
-  AccountSyncAccountLimitError,
-  AccountSyncReadTimeoutError,
-} from "@triton-one/triton-sdk";
+import { AccountSyncReadTimeoutError } from "@triton-one/triton-sdk";
 
 export const ACCOUNT_SYNC_LIMITS = {
   autoSubscribeOnMiss: true,
@@ -9,7 +6,6 @@ export const ACCOUNT_SYNC_LIMITS = {
   connectTimeoutMs: 10_000,
   closeTimeoutMs: 5_000,
   dynamicSubscriptionTtlMs: 60_000,
-  maxAccountsPerCommitment: 10_000,
 } as const;
 
 export const GRPC_CHANNEL_OPTIONS = {
@@ -30,10 +26,6 @@ export function reportExampleError(error: unknown): void {
   if (error instanceof AccountSyncReadTimeoutError) {
     console.error(
       `read timed out: account=${error.accountId} commitment=${error.commitment} timeoutMs=${error.timeoutMs} minContextSlot=${error.minContextSlot ?? "none"}`,
-    );
-  } else if (error instanceof AccountSyncAccountLimitError) {
-    console.error(
-      `account limit reached: commitment=${error.commitment} limit=${error.limit}`,
     );
   } else {
     console.error(error);

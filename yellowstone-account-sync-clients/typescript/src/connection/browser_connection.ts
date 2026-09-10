@@ -41,14 +41,93 @@ import {
   toWeb3JsAccountInfo
 } from "./utils";
 
-// What: web3.js-compatible Connection wrapper for browser runtimes.
-// Why: Browser bundle must expose websocket transport only.
-// How: Uses shared core with websocket transport factory from global WebSocket.
+/**
+ * A drop-in web3.js connection with locally buffered account reads for browsers.
+ *
+ * The account information methods overridden by this class read from a live
+ * account-sync buffer. Other inherited {@link Web3JsConnection} methods keep
+ * using the JSON RPC endpoint as normal. The browser build supports only the
+ * WebSocket account-sync transport.
+ *
+ * The `accountSync` configuration controls the live WebSocket, the accounts
+ * kept in the buffer, how reads handle an untracked account, reconnection, RPC
+ * polling during stream outages, and shutdown. Accounts in `initialAccounts`
+ * stay subscribed until removed. Accounts added by a read are temporary and
+ * expire after `dynamicSubscriptionTtlMs` when they are no longer in use, unless
+ * `removeAccounts` or `setAccounts` removes them first.
+ *
+ * When `subscriptionEndpoint` is omitted, its WebSocket URL is derived from
+ * `endpoint`. A read at a commitment other than the configured default uses a
+ * separate stream and buffer. The browser build does not accept `grpc` options.
+ * If WebSocket startup fails, the error is available from
+ * {@link getLastTransportError} while RPC polling and reconnect attempts continue.
+ *
+ * Call {@link close} when the connection is no longer needed so its stream and
+ * background work can stop.
+ *
+ * @example Configure every browser account-sync option
+ * ```ts
+ * import { AccountSyncTransports, Connection, PublicKey } from "@triton-one/triton-sdk";
+ *
+ * const address = new PublicKey("11111111111111111111111111111111");
+ * const connection = new Connection("https://example.com/token", {
+ *   accountSync: {
+ *     // WebSocket is the only browser transport and is the default.
+ *     transport: AccountSyncTransports.WS,
+ *
+ *     // Optional WebSocket endpoint override. By default it is derived from
+ *     // the Connection endpoint.
+ *     subscriptionEndpoint: "wss://account-sync.example.com/token",
+ *
+ *     // Default commitment for buffered reads. Defaults to "confirmed".
+ *     commitment: "confirmed",
+ *
+ *     // Accounts pinned in the subscription from startup. Defaults to [].
+ *     initialAccounts: [address],
+ *
+ *     // Subscribe temporarily when a read misses the buffer. Defaults to true.
+ *     autoSubscribeOnMiss: true,
+ *
+ *     // Maximum wait for a buffered account observation. Defaults to 5 seconds.
+ *     missTimeoutMs: 5_000,
+ *
+ *     // RPC refresh interval while the live stream is unavailable. Defaults to 1 second.
+ *     rpcPollIntervalMs: 1_000,
+ *
+ *     // Reconnect delay starts at 100 ms and grows up to 5 seconds by default.
+ *     reconnectInitialDelayMs: 100,
+ *     reconnectMaxDelayMs: 5_000,
+ *
+ *     // Maximum time for one WebSocket connection attempt. Defaults to 10 seconds.
+ *     connectTimeoutMs: 10_000,
+ *
+ *     // Maximum time to stop account-sync background work. Defaults to 5 seconds.
+ *     closeTimeoutMs: 5_000,
+ *
+ *     // Idle lifetime of temporary subscriptions created by reads. Defaults to 60 seconds.
+ *     dynamicSubscriptionTtlMs: 60_000
+ *   }
+ * });
+ *
+ * const account = await connection.getAccountInfo(address);
+ * await connection.close();
+ * ```
+ */
 export class Connection extends Web3JsConnection {
   private readonly core: AccountSyncCore;
   private readonly accountSyncCommitment: AccountSyncCommitment;
   private readonly accountParseContextCache = new AccountParseContextCache();
 
+  /**
+   * Creates a web3.js-compatible connection and starts its account-sync buffer.
+   *
+   * @param endpoint Fullnode JSON RPC endpoint. It is also used to derive the
+   * account-sync WebSocket endpoint unless `accountSync.subscriptionEndpoint` is set.
+   * @param commitmentOrConfig Default commitment or a web3.js connection
+   * configuration extended with browser account-sync options.
+   * @throws `Error` when an endpoint or account-sync option is invalid, an
+   * initial account address is invalid, or gRPC is requested.
+   */
   constructor(endpoint: string, commitmentOrConfig?: BrowserCommitmentOrConfig) {
     const { commitment, config } =
       splitCommitmentAndConfig<BrowserAccountSyncConnectionConfig>(
@@ -93,7 +172,6 @@ export class Connection extends Web3JsConnection {
       reconnectMaxDelayMs: resolved.reconnectMaxDelayMs,
       closeTimeoutMs: resolved.closeTimeoutMs,
       dynamicSubscriptionTtlMs: resolved.dynamicSubscriptionTtlMs,
-      maxAccountsPerCommitment: resolved.maxAccountsPerCommitment,
       onAccountsInvalidated: (accountIds) => {
         for (const accountId of accountIds) {
           this.accountParseContextCache.delete(accountId);
@@ -102,6 +180,21 @@ export class Connection extends Web3JsConnection {
     });
   }
 
+  /**
+   * Reads one account and the slot associated with its local observation.
+   *
+   * A cache miss can create a temporary subscription and hydrate the account
+   * from RPC. A requested `minContextSlot` must be satisfied before the read
+   * completes. `dataSlice` changes only the returned data; the runtime `space`
+   * field still describes the full account data length.
+   *
+   * @param publicKey Address of the account to read.
+   * @param commitmentOrConfig Commitment or web3.js account read options.
+   * @returns The account and observation context, or `null` when RPC confirms
+   * that the account does not exist.
+   * @throws {@link AccountSyncReadTimeoutError} when the local buffer cannot
+   * satisfy the read before `missTimeoutMs`.
+   */
   public override async getAccountInfoAndContext(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
@@ -117,9 +210,17 @@ export class Connection extends Web3JsConnection {
     };
   }
 
-  // What: Returns locally buffered account info in web3.js schema.
-  // Why: Main SDK objective is replacing polling RPC reads with local cache reads.
-  // How: Normalize key, resolve buffered state, map to `AccountInfo<Buffer>`.
+  /**
+   * Reads one account from the local account-sync buffer.
+   *
+   * This is the value-only form of {@link getAccountInfoAndContext}. Errors are
+   * wrapped with the account address to match web3.js behavior.
+   *
+   * @param publicKey Address of the account to read.
+   * @param commitmentOrConfig Commitment or web3.js account read options.
+   * @returns Account information, or `null` when the account does not exist.
+   * @throws `Error` when the buffered read, hydration, or input validation fails.
+   */
   public override async getAccountInfo(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
@@ -137,6 +238,20 @@ export class Connection extends Web3JsConnection {
     }
   }
 
+  /**
+   * Reads and parses one account from the local account-sync buffer.
+   *
+   * The parser may read supporting accounts, such as an SPL token mint, through
+   * this connection. Unsupported parsers and unavailable parse context fall
+   * back to raw base64 account data, matching web3.js response behavior.
+   *
+   * @param publicKey Address of the account to read.
+   * @param commitmentOrConfig Commitment or web3.js account read options.
+   * @returns Parsed account information and its observation context, or `null`
+   * when the account does not exist.
+   * @throws {@link AccountSyncReadTimeoutError} when a required buffered read
+   * cannot be satisfied before `missTimeoutMs`.
+   */
   public override async getParsedAccountInfo(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
@@ -155,9 +270,19 @@ export class Connection extends Web3JsConnection {
     };
   }
 
-  // What: Returns locally buffered account info for multiple accounts with context.
-  // Why: Match web3.js `getMultipleAccountsInfoAndContext` while using the local cache.
-  // How: Resolve each account through the same core path used by `getAccountInfo`.
+  /**
+   * Reads several accounts and a shared context from the local buffer.
+   *
+   * Results preserve input order and duplicate keys. The context slot is the
+   * lowest observation slot in the result, including observations that an
+   * account is missing.
+   *
+   * @param publicKeys Addresses of the accounts to read.
+   * @param commitmentOrConfig Commitment or web3.js multiple-account options.
+   * @returns Account values and their shared context.
+   * @throws {@link AccountSyncReadTimeoutError} when any account cannot satisfy
+   * the read before `missTimeoutMs`.
+   */
   public override async getMultipleAccountsInfoAndContext(
     publicKeys: PublicKey[],
     commitmentOrConfig?: Commitment | GetMultipleAccountsConfig
@@ -179,6 +304,17 @@ export class Connection extends Web3JsConnection {
     };
   }
 
+  /**
+   * Reads and parses several accounts from the local account-sync buffer.
+   *
+   * Results preserve input order and duplicate keys. Unsupported parsers and
+   * unavailable parse context fall back to raw base64 account data.
+   *
+   * @param publicKeys Addresses of the accounts to read.
+   * @param rawConfig web3.js multiple-account read options.
+   * @returns Parsed account values and the lowest observation slot shared by the result.
+   * @throws {@link AccountSyncReadTimeoutError} when any required account read times out.
+   */
   public override async getMultipleParsedAccounts(
     publicKeys: PublicKey[],
     rawConfig?: GetMultipleAccountsConfig
@@ -202,9 +338,17 @@ export class Connection extends Web3JsConnection {
     };
   }
 
-  // What: Returns locally buffered account info for multiple accounts.
-  // Why: web3.js exposes this as the convenience method without context.
-  // How: Delegate to the context variant and return only `value`.
+  /**
+   * Reads several accounts from the local account-sync buffer.
+   *
+   * Results preserve input order and duplicate keys. This is the value-only
+   * form of {@link getMultipleAccountsInfoAndContext}.
+   *
+   * @param publicKeys Addresses of the accounts to read.
+   * @param commitmentOrConfig Commitment or web3.js multiple-account options.
+   * @returns Account information in input order, with `null` for missing accounts.
+   * @throws {@link AccountSyncReadTimeoutError} when any account read times out.
+   */
   public override async getMultipleAccountsInfo(
     publicKeys: PublicKey[],
     commitmentOrConfig?: Commitment | GetMultipleAccountsConfig
@@ -216,9 +360,22 @@ export class Connection extends Web3JsConnection {
     return response.value;
   }
 
-  // What: Adds accounts to live subscription set.
-  // Why: Consumers must be able to enroll additional accounts at runtime.
-  // How: Normalize keys then forward to core.
+  /**
+   * Pins accounts in the live subscription set without removing existing ones.
+   *
+   * @param accountIds Account addresses to add. Duplicate addresses are ignored.
+   * @param commitment Commitment-specific subscription set to update. Defaults
+   * to the account-sync commitment configured on this connection.
+   * @returns A promise that settles after the desired account set is recorded
+   * and any current stream update attempt finishes. If the stream is unavailable
+   * or the attempt fails, polling and reconnection use the new set.
+   * @throws `Error` when an address is invalid or the connection is closed.
+   *
+   * @example
+   * ```ts
+   * await connection.addAccounts([accountA, accountB], "finalized");
+   * ```
+   */
   public async addAccounts(
     accountIds: ReadonlyArray<string | PublicKey>,
     commitment?: Commitment
@@ -229,9 +386,24 @@ export class Connection extends Web3JsConnection {
     );
   }
 
-  // What: Removes accounts from live subscription set.
-  // Why: Consumers must be able to stop buffering accounts at runtime.
-  // How: Normalize keys then forward to core.
+  /**
+   * Unpins accounts from a commitment's live subscription set.
+   *
+   * Removing an account immediately removes its pinned or temporary ownership
+   * and invalidates its cached state. An active read can continue through its
+   * one-time RPC request. After {@link close}, removing from a commitment that
+   * has no lane remains a successful no-op; other removals reject.
+   *
+   * @param accountIds Account addresses to remove. Untracked addresses do not
+   * change the subscription, but their parse-context cache entries are invalidated.
+   * @param commitment Commitment-specific subscription set to update. Defaults
+   * to the account-sync commitment configured on this connection.
+   * @returns A promise that settles after the desired account set is recorded
+   * and any current stream update attempt finishes. If the stream is unavailable
+   * or the attempt fails, polling and reconnection use the new set.
+   * @throws `Error` when an address is invalid, or when the connection is closed
+   * and the commitment lane exists.
+   */
   public async removeAccounts(
     accountIds: ReadonlyArray<string | PublicKey>,
     commitment?: Commitment
@@ -242,9 +414,21 @@ export class Connection extends Web3JsConnection {
     );
   }
 
-  // What: Replaces full live subscription set.
-  // Why: Deterministic control API for explicit account list management.
-  // How: Normalize keys then forward to core.
+  /**
+   * Replaces all pinned accounts for one commitment.
+   *
+   * Accounts outside the new set immediately lose pinned and temporary ownership,
+   * and all temporary leases for this commitment are cleared. Active reads for
+   * removed accounts can continue through their one-time RPC requests.
+   *
+   * @param accountIds Complete set of account addresses to pin. Duplicates are ignored.
+   * @param commitment Commitment-specific subscription set to replace. Defaults
+   * to the account-sync commitment configured on this connection.
+   * @returns A promise that settles after the desired account set is recorded
+   * and any current stream update attempt finishes. If the stream is unavailable
+   * or the attempt fails, polling and reconnection use the new set.
+   * @throws `Error` when an address is invalid or the connection is closed.
+   */
   public async setAccounts(
     accountIds: ReadonlyArray<string | PublicKey>,
     commitment?: Commitment
@@ -255,16 +439,29 @@ export class Connection extends Web3JsConnection {
     );
   }
 
-  // What: Closes underlying stream transport and background tasks.
-  // Why: Consumers need explicit lifecycle cleanup.
-  // How: Delegate shutdown to core.
+  /**
+   * Stops account-sync streams, timers, retries, and pending buffered reads.
+   *
+   * Calling `close` more than once returns the same shutdown operation. Inherited
+   * web3.js JSON RPC methods are not managed by this account-sync lifecycle.
+   *
+   * @returns A promise that settles when account-sync shutdown is complete.
+   * @throws `Error` when shutdown exceeds `closeTimeoutMs`.
+   */
   public async close(): Promise<void> {
     await this.core.close();
   }
 
-  // What: Exposes latest background transport error.
-  // Why: Allows callers to inspect stream health without custom logging hooks.
-  // How: Return last error observed by core transport handler.
+  /**
+   * Returns the latest background account-sync error.
+   *
+   * This can be a transport, RPC polling, hydration, or reconciliation error.
+   * The SDK can recover after it, so a non-null result does not by itself mean
+   * that reads are unavailable. The error is retained and is not cleared after
+   * recovery.
+   *
+   * @returns The latest background error, or `null` if none has been observed.
+   */
   public getLastTransportError(): Error | null {
     return this.core.getLastTransportError();
   }

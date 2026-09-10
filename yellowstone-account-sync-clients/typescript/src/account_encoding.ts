@@ -13,6 +13,12 @@ import initAccountEncodingWasm, {
 } from "./wasm/account_encoding/yellowstone_account_sync_account_encoding_wasm.js";
 import type { BufferedAccountState } from "./core/types";
 
+/**
+ * Account data encodings accepted by the encoding helpers.
+ *
+ * `"binary"` is Solana's legacy name for base58. `"base64+zstd"` is a
+ * zstd-compressed byte sequence represented as base64.
+ */
 export type AccountDataEncoding =
   | "binary"
   | "base58"
@@ -20,76 +26,139 @@ export type AccountDataEncoding =
   | "base64+zstd"
   | "jsonParsed";
 
+/**
+ * Account data shape returned in a {@link UiAccount}.
+ *
+ * Legacy `"binary"` output is a plain base58 string. Other raw encodings use an
+ * `[encodedData, encoding]` tuple. Parsed output uses the web3.js
+ * {@link ParsedAccountData} shape.
+ */
 export type EncodedAccountData =
   | string
   | [string, Exclude<AccountDataEncoding, "jsonParsed">]
   | ParsedAccountData;
 
+/** JSON-compatible account information in Solana RPC response form. */
 export interface UiAccount {
+  /** Account balance in lamports. */
   lamports: number;
+  /** Account data encoded in the requested form. */
   data: EncodedAccountData;
+  /** Base58 address of the program that owns the account. */
   owner: string;
+  /** Whether the account contains an executable program. */
   executable: boolean;
+  /** Epoch at which the account will next owe rent. */
   rentEpoch: number;
+  /** Full account data size in bytes, even when `dataSlice` is used. */
   space?: number;
 }
 
+/** Raw account values accepted by {@link encodeAccount} and {@link parseJsonParsed}. */
 export interface AccountEncodingInput {
+  /** Address of the account being encoded. */
   pubkey: string | PublicKey;
+  /** Address of the program that owns the account. */
   owner: string | PublicKey;
+  /** Account balance as an unsigned 64-bit integer. */
   lamports: number | bigint | string;
+  /** Whether the account contains an executable program. */
   executable: boolean;
+  /** Rent epoch as an unsigned 64-bit integer. */
   rentEpoch: number | bigint | string;
+  /** Raw account bytes, or a base64-encoded string. */
   data: Uint8Array | Buffer | string;
 }
 
+/** SPL token mint data supplied while parsing a token account. */
 export interface AccountParseContextMint {
+  /** Address of the mint account. */
   pubkey: string | PublicKey;
+  /** Raw mint account bytes, or a base64-encoded string. */
   data: Uint8Array | Buffer | string;
 }
 
+/** Extra on-chain or clock data that some account parsers require. */
 export interface AccountParseContext {
+  /** Mint account used to calculate display amounts for an SPL token account. */
   splTokenMint?: AccountParseContextMint;
+  /** Unix time in seconds used by parsers whose output depends on the current time. */
   unixTimestamp?: number;
 }
 
+/** Minimal account value accepted from an {@link AccountParseContextFetcher}. */
 export interface AccountParseContextAccount {
+  /** Raw account bytes, or a base64-encoded string. */
   data: Uint8Array | Buffer | string;
 }
 
+/**
+ * Loads an account needed to parse another account.
+ *
+ * Return `null` when the requested account does not exist.
+ *
+ * @param pubkey Address of the context account to load.
+ * @returns Account data, or `null` when the account does not exist.
+ */
 export type AccountParseContextFetcher = (
   pubkey: PublicKey
 ) => Promise<AccountInfo<Buffer> | AccountParseContextAccount | null>;
 
+/** Options shared by {@link encodeAccount} and {@link parseJsonParsed}. */
 export interface AccountEncodingOptions {
+  /** Byte range to return for raw encodings. `space` still reports the full data size. */
   dataSlice?: DataSlice;
+  /** Parser inputs already available to the caller. */
   parseContext?: AccountParseContext;
+  /** Loader used when parsing reports that another account is required. */
   parseContextFetcher?: AccountParseContextFetcher;
+  /** Cache used for accounts loaded through `parseContextFetcher`. */
   cache?: AccountParseContextCache;
+  /**
+   * Whether parsing errors should return raw base64 data instead of rejecting.
+   * Defaults to `true` for {@link encodeAccount} and `false` for
+   * {@link parseJsonParsed}.
+   */
   fallbackOnParseFailure?: boolean;
+  /** Unix time in seconds. Overrides `parseContext.unixTimestamp`. */
   unixTimestamp?: number;
   /** @internal Allows tests to inject a parser without changing global WASM state. */
   wasm?: AccountEncodingWasm;
 }
 
+/** Options for {@link convertAccountData}. */
 export interface ConvertAccountDataOptions {
   /** @internal Allows tests to inject a parser without changing global WASM state. */
   wasm?: AccountEncodingWasm;
 }
 
+/** Metadata attached to account encoding errors. */
 export interface AccountEncodingErrorMetadata {
+  /** Base58 address of the account being encoded. */
   pubkey?: string;
+  /** Base58 address of the owning program. */
   owner?: string;
+  /** Requested output encoding. */
   encoding?: AccountDataEncoding;
+  /** Original value that caused this error, when available. */
   cause?: unknown;
 }
 
+/** Thrown when an encoding or account parser is not supported. */
 export class UnsupportedEncodingError extends Error {
+  /** Base58 address of the account being encoded, when available. */
   readonly pubkey?: string;
+  /** Base58 address of the owning program, when available. */
   readonly owner?: string;
+  /** Requested output encoding, when available. */
   readonly encoding?: AccountDataEncoding;
+  /** Original value that caused this error, when available. */
   readonly cause?: unknown;
 
+  /**
+   * @param message Human-readable description of the failure.
+   * @param metadata Account and encoding details attached to the error.
+   */
   constructor(message: string, metadata: AccountEncodingErrorMetadata = {}) {
     super(message);
     this.name = "UnsupportedEncodingError";
@@ -100,12 +169,21 @@ export class UnsupportedEncodingError extends Error {
   }
 }
 
+/** Thrown when account fields or encoded data cannot be validated or decoded. */
 export class InvalidAccountDataError extends Error {
+  /** Base58 address of the account being encoded, when available. */
   readonly pubkey?: string;
+  /** Base58 address of the owning program, when available. */
   readonly owner?: string;
+  /** Requested output encoding, when available. */
   readonly encoding?: AccountDataEncoding;
+  /** Original value that caused this error, when available. */
   readonly cause?: unknown;
 
+  /**
+   * @param message Human-readable description of the failure.
+   * @param metadata Account and encoding details attached to the error.
+   */
   constructor(message: string, metadata: AccountEncodingErrorMetadata = {}) {
     super(message);
     this.name = "InvalidAccountDataError";
@@ -116,14 +194,28 @@ export class InvalidAccountDataError extends Error {
   }
 }
 
+/**
+ * Thrown when parsed output needs account data that was not supplied and could
+ * not be loaded.
+ */
 export class MissingParseContextError extends Error {
+  /** Base58 address of the account being parsed, when available. */
   readonly pubkey?: string;
+  /** Base58 address of the owning program, when available. */
   readonly owner?: string;
+  /** Requested output encoding, when available. */
   readonly encoding?: AccountDataEncoding;
+  /** Addresses of the accounts required to continue parsing. */
   readonly missingAccounts: readonly string[];
+  /** Parser-specific name for the missing context, such as an SPL token mint. */
   readonly contextKind?: string;
+  /** Original value that caused this error, when available. */
   readonly cause?: unknown;
 
+  /**
+   * @param message Human-readable description of the failure.
+   * @param metadata Missing addresses and account details attached to the error.
+   */
   constructor(
     message: string,
     metadata: AccountEncodingErrorMetadata & {
@@ -142,14 +234,25 @@ export class MissingParseContextError extends Error {
   }
 }
 
+/** Thrown when an {@link AccountParseContextFetcher} fails. */
 export class ContextFetchError extends Error {
+  /** Base58 address of the account being parsed, when available. */
   readonly pubkey?: string;
+  /** Base58 address of the owning program, when available. */
   readonly owner?: string;
+  /** Requested output encoding, when available. */
   readonly encoding?: AccountDataEncoding;
+  /** Address that the context fetcher was asked to load. */
   readonly missingAccount?: string;
+  /** Parser-specific name for the requested context. */
   readonly contextKind?: string;
+  /** Original value that caused this error, when available. */
   readonly cause?: unknown;
 
+  /**
+   * @param message Human-readable description of the failure.
+   * @param metadata Requested context and account details attached to the error.
+   */
   constructor(
     message: string,
     metadata: AccountEncodingErrorMetadata & {
@@ -168,12 +271,21 @@ export class ContextFetchError extends Error {
   }
 }
 
+/** Thrown when the account encoding WASM module fails unexpectedly. */
 export class WasmParserError extends Error {
+  /** Base58 address of the account being encoded, when available. */
   readonly pubkey?: string;
+  /** Base58 address of the owning program, when available. */
   readonly owner?: string;
+  /** Requested output encoding, when available. */
   readonly encoding?: AccountDataEncoding;
+  /** Original value that caused this error, when available. */
   readonly cause?: unknown;
 
+  /**
+   * @param message Human-readable description of the failure.
+   * @param metadata Account and encoding details attached to the error.
+   */
   constructor(message: string, metadata: AccountEncodingErrorMetadata = {}) {
     super(message);
     this.name = "WasmParserError";
@@ -184,8 +296,11 @@ export class WasmParserError extends Error {
   }
 }
 
+/** Options for {@link AccountParseContextCache}. */
 export interface AccountParseContextCacheOptions {
+  /** Maximum cached accounts. Least-recently-used entries are removed first. Defaults to 256. */
   maxEntries?: number;
+  /** Time a cached account or missing-account result remains valid. Defaults to 5 minutes. */
   ttlMs?: number;
 }
 
@@ -194,6 +309,12 @@ interface CacheEntry {
   expiresAtMs: number;
 }
 
+/**
+ * A bounded cache for accounts loaded to support parsed account output.
+ *
+ * The cache stores `null` results, refreshes recency on reads, and shares one
+ * in-flight load among concurrent callers for the same address.
+ */
 export class AccountParseContextCache {
   private readonly maxEntries: number;
   private readonly ttlMs: number;
@@ -204,6 +325,11 @@ export class AccountParseContextCache {
   >();
   private readonly inFlightTokens = new Map<string, object>();
 
+  /**
+   * Creates a parse-context cache.
+   *
+   * @throws `Error` if `maxEntries` or `ttlMs` is not a positive safe integer.
+   */
   constructor(options: AccountParseContextCacheOptions = {}) {
     this.maxEntries = validatePositiveInteger(
       options.maxEntries ?? 256,
@@ -212,6 +338,13 @@ export class AccountParseContextCache {
     this.ttlMs = validatePositiveInteger(options.ttlMs ?? 300_000, "ttlMs");
   }
 
+  /**
+   * Reads and refreshes a cached entry.
+   *
+   * @param pubkey Address of the context account.
+   * @returns The cached account, `null` for a cached missing account, or
+   * `undefined` when no unexpired entry exists.
+   */
   get(pubkey: string | PublicKey): AccountParseContextAccount | null | undefined {
     const key = normalizePubkey(pubkey);
     const entry = this.entries.get(key);
@@ -229,6 +362,12 @@ export class AccountParseContextCache {
     return entry.value;
   }
 
+  /**
+   * Stores an account or a known missing-account result.
+   *
+   * @param pubkey Address of the context account.
+   * @param value Account data, or `null` when the account does not exist.
+   */
   set(
     pubkey: string | PublicKey,
     value: AccountParseContextAccount | null
@@ -242,6 +381,16 @@ export class AccountParseContextCache {
     this.evictOldest();
   }
 
+  /**
+   * Returns a cached account or loads and caches it.
+   *
+   * Concurrent calls for the same uncached address share the same loader call.
+   * Loader failures are not cached.
+   *
+   * @param pubkey Address of the context account.
+   * @param loader Function that loads the account when it is not cached.
+   * @returns The loaded account, or `null` when it does not exist.
+   */
   async getOrLoad(
     pubkey: string | PublicKey,
     loader: () => Promise<AccountParseContextAccount | null>
@@ -279,6 +428,12 @@ export class AccountParseContextCache {
     }
   }
 
+  /**
+   * Removes a cached value and prevents an in-flight load from repopulating it.
+   *
+   * @param pubkey Address of the context account to remove.
+   * @returns `true` if a stored cache entry was removed.
+   */
   delete(pubkey: string | PublicKey): boolean {
     const key = normalizePubkey(pubkey);
     this.inFlight.delete(key);
@@ -286,6 +441,7 @@ export class AccountParseContextCache {
     return this.entries.delete(key);
   }
 
+  /** Removes all cached values and detaches all in-flight loads. */
   clear(): void {
     this.entries.clear();
     this.inFlight.clear();
@@ -303,6 +459,7 @@ export class AccountParseContextCache {
   }
 }
 
+/** Internal interface implemented by the account encoding WASM bindings. */
 export interface AccountEncodingWasm {
   encode_account(
     accountJson: string,
@@ -349,10 +506,23 @@ const U64_MAX = (1n << 64n) - 1n;
 
 let wasmInitPromise: Promise<AccountEncodingWasm> | undefined;
 
+/**
+ * Reports whether this build supports the `"base64+zstd"` encoding.
+ *
+ * @returns `true` for the bundled WASM encoder.
+ */
 export function isBase64ZstdEncodingSupported(): boolean {
   return true;
 }
 
+/**
+ * Loads and initializes the bundled account encoding WASM module.
+ *
+ * Initialization is lazy and shared by all callers.
+ *
+ * @returns The initialized encoding functions.
+ * @throws `Error` when the WASM file cannot be loaded or initialized.
+ */
 export async function loadAccountEncodingWasm(): Promise<AccountEncodingWasm> {
   if (!wasmInitPromise) {
     wasmInitPromise = initializeWasm();
@@ -361,6 +531,32 @@ export async function loadAccountEncodingWasm(): Promise<AccountEncodingWasm> {
   return wasmInitPromise;
 }
 
+/**
+ * Encodes raw account values in Solana RPC account form.
+ *
+ * `"jsonParsed"` output can load extra account data through
+ * `options.parseContextFetcher`. Unsupported parsers return raw base64 data by
+ * default. Set `fallbackOnParseFailure` to `false` to receive a typed error.
+ *
+ * @param input Raw account values to encode.
+ * @param encoding Requested account data encoding.
+ * @param options Data slicing and parsed-account context options.
+ * @returns A JSON-compatible account value in the requested encoding.
+ * @throws {@link UnsupportedEncodingError} when the requested encoding or parser is unsupported.
+ * @throws {@link InvalidAccountDataError} when an account field or encoded value is invalid.
+ * @throws {@link MissingParseContextError} when parsing needs context that is unavailable.
+ * @throws {@link ContextFetchError} when loading parse context fails.
+ * @throws {@link WasmParserError} when the bundled parser fails unexpectedly.
+ *
+ * @example
+ * ```ts
+ * const encoded = await encodeAccount(
+ *   accountInfoToEncodingInput(address, accountInfo),
+ *   "base64"
+ * );
+ * console.log(encoded.data);
+ * ```
+ */
 export async function encodeAccount(
   input: AccountEncodingInput,
   encoding: AccountDataEncoding,
@@ -408,6 +604,20 @@ export async function encodeAccount(
   );
 }
 
+/**
+ * Parses raw account values using Solana's program-aware account parsers.
+ *
+ * Unlike {@link encodeAccount}, this function rejects on parse failure by
+ * default. Set `fallbackOnParseFailure` to `true` to receive raw base64 data.
+ *
+ * @param input Raw account values to parse.
+ * @param options Parser context, loader, cache, and fallback settings.
+ * @returns Parsed account data, or a base64 tuple when fallback is enabled.
+ * @throws {@link InvalidAccountDataError} when an account field is invalid.
+ * @throws {@link MissingParseContextError} when parsing needs context that is unavailable.
+ * @throws {@link ContextFetchError} when loading parse context fails.
+ * @throws {@link WasmParserError} when the bundled parser fails unexpectedly.
+ */
 export async function parseJsonParsed(
   input: AccountEncodingInput,
   options: AccountEncodingOptions = {}
@@ -429,6 +639,25 @@ export async function parseJsonParsed(
   );
 }
 
+/**
+ * Converts raw account data between binary encodings.
+ *
+ * `"binary"` is the legacy name for base58. Parsed JSON cannot be used as an
+ * input or output because it is not a raw byte encoding.
+ *
+ * @param input Account data encoded using `from`.
+ * @param from Current encoding of `input`.
+ * @param to Encoding to produce.
+ * @param options Reserved conversion options.
+ * @returns The same account bytes encoded using `to`.
+ * @throws {@link UnsupportedEncodingError} when either encoding is `"jsonParsed"`.
+ * @throws {@link InvalidAccountDataError} when `input` is invalid for `from`.
+ *
+ * @example
+ * ```ts
+ * const base58Data = await convertAccountData(base64Data, "base64", "base58");
+ * ```
+ */
 export async function convertAccountData(
   input: string,
   from: AccountDataEncoding,
@@ -456,6 +685,12 @@ export async function convertAccountData(
   }
 }
 
+/**
+ * Converts a buffered account into input accepted by {@link encodeAccount}.
+ *
+ * @param state Account state from the local account-sync buffer.
+ * @returns A view of the account values without buffer bookkeeping fields.
+ */
 export function bufferedAccountToEncodingInput(
   state: BufferedAccountState
 ): AccountEncodingInput {
@@ -469,6 +704,13 @@ export function bufferedAccountToEncodingInput(
   };
 }
 
+/**
+ * Converts web3.js account information into input accepted by {@link encodeAccount}.
+ *
+ * @param pubkey Address associated with `accountInfo`.
+ * @param accountInfo Raw web3.js account information.
+ * @returns The account values in encoder input form.
+ */
 export function accountInfoToEncodingInput(
   pubkey: string | PublicKey,
   accountInfo: AccountInfo<Buffer>
@@ -483,6 +725,13 @@ export function accountInfoToEncodingInput(
   };
 }
 
+/**
+ * Converts a JSON-compatible account into the web3.js parsed account shape.
+ *
+ * @param account Account returned by {@link encodeAccount} using `"jsonParsed"`.
+ * @returns Account information with a `PublicKey` owner and parsed or raw data.
+ * @throws {@link UnsupportedEncodingError} when `account.data` is not a supported parsed-account shape.
+ */
 export function toWeb3JsParsedAccountInfo(
   account: UiAccount
 ): AccountInfo<Buffer | ParsedAccountData> {

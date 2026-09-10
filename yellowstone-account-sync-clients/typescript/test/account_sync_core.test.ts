@@ -117,23 +117,6 @@ function makeUpdate(partial: Partial<DecodedAccountUpdate>): DecodedAccountUpdat
 }
 
 describe("AccountSyncCore", () => {
-  it("rejects initial pinned accounts above the configured limit", () => {
-    const transportFactory = new FakeTransportFactory();
-    expect(
-      () =>
-        new AccountSyncCore({
-          transportFactory: transportFactory.create,
-          initialStatePlugin: new FakeInitialStatePlugin(),
-          commitment: "confirmed",
-          initialAccountIds: ["A1", "A2"],
-          autoSubscribeOnMiss: true,
-          missTimeoutMs: 100,
-          maxAccountsPerCommitment: 1
-        })
-    ).toThrow(/account limit of 1/);
-    expect(transportFactory.transports).toHaveLength(0);
-  });
-
   it("applies initial accounts on startup", async () => {
     const transportFactory = new FakeTransportFactory();
     const core = new AccountSyncCore({
@@ -653,7 +636,7 @@ describe("AccountSyncCore", () => {
     await core.close();
   });
 
-  it("uses RPC without subscribing when every account slot is pinned", async () => {
+  it("adds a read-created subscription alongside pinned accounts", async () => {
     const transportFactory = new FakeTransportFactory();
     const initialStatePlugin = new FakeInitialStatePlugin(async (context) => {
       if (context.singleRequest) {
@@ -666,20 +649,20 @@ describe("AccountSyncCore", () => {
       commitment: "confirmed",
       initialAccountIds: ["A12"],
       autoSubscribeOnMiss: true,
-      missTimeoutMs: 100,
-      maxAccountsPerCommitment: 1
+      missTimeoutMs: 100
     });
 
     await core.ready();
     const account = await core.getBufferedAccount("A13");
     expect(account?.lamports).toBe(13n);
     expect(transportFactory.byCommitment("confirmed").setCalls).toEqual([
-      { accountIds: ["A12"], commitment: "confirmed" }
+      { accountIds: ["A12"], commitment: "confirmed" },
+      { accountIds: ["A12", "A13"], commitment: "confirmed" }
     ]);
     await core.close();
   });
 
-  it("does not evict a lease while its read is active", async () => {
+  it("keeps subscriptions for concurrent reads", async () => {
     const transportFactory = new FakeTransportFactory();
     let releaseFirstRead: (() => void) | undefined;
     const firstReadGate = new Promise<void>((resolve) => {
@@ -701,8 +684,7 @@ describe("AccountSyncCore", () => {
       commitment: "confirmed",
       initialAccountIds: [],
       autoSubscribeOnMiss: true,
-      missTimeoutMs: 2_000,
-      maxAccountsPerCommitment: 1
+      missTimeoutMs: 2_000
     });
 
     await core.ready();
@@ -716,13 +698,13 @@ describe("AccountSyncCore", () => {
 
     expect(
       transportFactory.byCommitment("confirmed").setCalls.at(-1)?.accountIds
-    ).toEqual(["A13-active"]);
+    ).toEqual(["A13-active", "A13-rpc-only"]);
     releaseFirstRead?.();
     await firstRead;
     await core.close();
   });
 
-  it("evicts the least recently used lease at the account limit", async () => {
+  it("keeps all read-created subscriptions until their leases expire", async () => {
     const transportFactory = new FakeTransportFactory();
     const initialStatePlugin = new FakeInitialStatePlugin(async (context) => {
       for (const accountId of context.accountIds) {
@@ -736,8 +718,7 @@ describe("AccountSyncCore", () => {
       initialAccountIds: [],
       autoSubscribeOnMiss: true,
       missTimeoutMs: 100,
-      dynamicSubscriptionTtlMs: 2_000,
-      maxAccountsPerCommitment: 2
+      dynamicSubscriptionTtlMs: 2_000
     });
 
     await core.ready();
@@ -748,11 +729,11 @@ describe("AccountSyncCore", () => {
 
     expect(
       transportFactory.byCommitment("confirmed").setCalls.at(-1)?.accountIds
-    ).toEqual(["A15", "A16"]);
+    ).toEqual(["A14", "A15", "A16"]);
     await core.close();
   });
 
-  it("rejects pinned accounts above the configured limit without partial state", async () => {
+  it("accepts additional pinned accounts", async () => {
     const transportFactory = new FakeTransportFactory();
     const core = new AccountSyncCore({
       transportFactory: transportFactory.create,
@@ -760,16 +741,14 @@ describe("AccountSyncCore", () => {
       commitment: "confirmed",
       initialAccountIds: ["A17"],
       autoSubscribeOnMiss: true,
-      missTimeoutMs: 100,
-      maxAccountsPerCommitment: 1
+      missTimeoutMs: 100
     });
 
     await core.ready();
-    await expect(core.addTrackedAccounts(["A18"])).rejects.toMatchObject({
-      name: "AccountSyncAccountLimitError"
-    });
+    await core.addTrackedAccounts(["A18"]);
     expect(transportFactory.byCommitment("confirmed").setCalls).toEqual([
-      { accountIds: ["A17"], commitment: "confirmed" }
+      { accountIds: ["A17"], commitment: "confirmed" },
+      { accountIds: ["A17", "A18"], commitment: "confirmed" }
     ]);
     await core.close();
   });

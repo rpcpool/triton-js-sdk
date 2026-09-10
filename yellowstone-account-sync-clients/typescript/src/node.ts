@@ -17,10 +17,7 @@ export {
   toWeb3JsParsedAccountInfo
 } from "./account_encoding";
 export { AccountSyncTransports } from "./core/types";
-export {
-  AccountSyncAccountLimitError,
-  AccountSyncReadTimeoutError
-} from "./core/errors";
+export { AccountSyncReadTimeoutError } from "./core/errors";
 export type { AccountSyncReadTimeoutErrorOptions } from "./core/errors";
 
 export type {

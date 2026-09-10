@@ -66,7 +66,6 @@ describe("reconnection settings", () => {
     expect(resolved.connectTimeoutMs).toBe(10_000);
     expect(resolved.closeTimeoutMs).toBe(5_000);
     expect(resolved.dynamicSubscriptionTtlMs).toBe(60_000);
-    expect(resolved.maxAccountsPerCommitment).toBe(10_000);
   });
 
   it("rejects invalid polling and reconnect delays", () => {
@@ -110,14 +109,6 @@ describe("reconnection settings", () => {
         undefined
       )
     ).toThrow(/dynamicSubscriptionTtlMs/);
-    expect(() =>
-      resolveAccountSyncSettings(
-        { maxAccountsPerCommitment: 0 },
-        "ws://127.0.0.1:12000",
-        AccountSyncTransports.WS,
-        undefined
-      )
-    ).toThrow(/maxAccountsPerCommitment/);
   });
 });
 

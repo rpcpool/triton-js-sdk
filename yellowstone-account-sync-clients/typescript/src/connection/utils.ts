@@ -23,7 +23,6 @@ const DEFAULT_RECONNECT_MAX_DELAY_MS = 5_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_CLOSE_TIMEOUT_MS = 5_000;
 const DEFAULT_DYNAMIC_SUBSCRIPTION_TTL_MS = 60_000;
-const DEFAULT_MAX_ACCOUNTS_PER_COMMITMENT = 10_000;
 const DEFAULT_GRPC_FLOW_CONTROL_WINDOW_BYTES = 16 * 1024 * 1024;
 const DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_BYTES = 16 * 1024 * 1024;
 const DEFAULT_GRPC_KEEP_ALIVE_INTERVAL_MS = 30_000;
@@ -47,7 +46,6 @@ export interface ResolvedAccountSyncSettings<TTransport extends AccountSyncTrans
   connectTimeoutMs: number;
   closeTimeoutMs: number;
   dynamicSubscriptionTtlMs: number;
-  maxAccountsPerCommitment: number;
   grpc: {
     flowControlWindowBytes: number;
     maxReceiveMessageLengthBytes: number;
@@ -209,11 +207,6 @@ export function resolveAccountSyncSettings<TTransport extends AccountSyncTranspo
       DEFAULT_DYNAMIC_SUBSCRIPTION_TTL_MS,
       "accountSync.dynamicSubscriptionTtlMs"
     ),
-    maxAccountsPerCommitment: normalizePositiveSafeInteger(
-      options?.maxAccountsPerCommitment,
-      DEFAULT_MAX_ACCOUNTS_PER_COMMITMENT,
-      "accountSync.maxAccountsPerCommitment"
-    ),
     grpc: {
       flowControlWindowBytes: normalizePositiveSafeInteger(
         options?.grpc?.flowControlWindowBytes,
@@ -369,7 +362,7 @@ export function toWeb3JsAccountInfo(
     lamports: Number(state.lamports),
     data: sliceAccountData(state.data, dataSlice),
     rentEpoch: Number(state.rentEpoch),
-    space: state.data.length
+    // space: state.data.length
   } as AccountInfo<Buffer>;
 }
 
