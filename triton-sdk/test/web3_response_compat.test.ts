@@ -30,7 +30,7 @@ const ACCOUNT_INFO_KEYS = [
 ] as const;
 const ACCOUNT_FILE_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "../../../k6/accounts.txt"
+  "../../k6/accounts.txt"
 );
 const DEFAULT_ACCOUNT_COUNT = 8;
 const DEFAULT_RANDOM_SEED = 470;
