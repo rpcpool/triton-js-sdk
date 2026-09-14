@@ -13,6 +13,19 @@ import {
 
 export * from "@solana/web3.js";
 
+/** A native web3.js connection unless accountSync options are supplied. */
+export declare const Connection: {
+  new (
+    endpoint: string,
+    config: BrowserAccountSyncConnectionConfig & {
+      accountSync: NonNullable<BrowserAccountSyncConnectionConfig["accountSync"]>;
+    }
+  ): AccountSyncConnection;
+  new (endpoint: string, config?: Commitment | BrowserAccountSyncConnectionConfig): Web3JsConnection;
+};
+
+export type Connection = Web3JsConnection;
+
 /** Subscription transports supported by the SDK. */
 export declare enum AccountSyncTransports {
   /** Yellowstone account-sync over WebSocket. */
@@ -503,7 +516,7 @@ export declare function toWeb3JsParsedAccountInfo(
  * await connection.close();
  * ```
  */
-export declare class Connection extends Web3JsConnection {
+export declare class AccountSyncConnection extends Web3JsConnection {
   /**
    * Creates a connection and starts its WebSocket account-sync buffer.
    *
