@@ -13,7 +13,8 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   AccountSyncTransports,
-  Connection as SdkConnection,
+  Connection,
+  type AccountSyncConnection as SdkConnection,
   type NodeSubscriptionTransport
 } from "../src/node";
 
@@ -293,7 +294,7 @@ function createSdkConnection(
   env: LiveEnv,
   initialAccounts: readonly PublicKey[]
 ): SdkConnection {
-  return new SdkConnection(buildRpcEndpoint(env), {
+  return new Connection(buildRpcEndpoint(env), {
     commitment: DEFAULT_COMMITMENT,
     accountSync: {
       transport,

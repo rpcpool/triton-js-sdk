@@ -29,6 +29,7 @@ import {
   type ResolvedGetAccountInfoOptions
 } from "../core/types";
 import { RpcInitialStatePlugin } from "../plugins/rpc_initial_state";
+import { createConnectionConstructor } from "./connection_selector";
 import { GrpcAccountSubscriptionTransport } from "../transport/grpc";
 import { WsAccountSubscriptionTransport, type WebSocketLike } from "../transport/ws";
 import {
@@ -129,7 +130,7 @@ import {
  * await connection.close();
  * ```
  */
-export class Connection extends Web3JsConnection {
+export class AccountSyncConnection extends Web3JsConnection {
   private readonly core: AccountSyncCore;
   private readonly accountSyncCommitment: AccountSyncCommitment;
   private readonly accountParseContextCache = new AccountParseContextCache();
@@ -582,3 +583,11 @@ function contextFetchConfig(
     minContextSlot: options.minContextSlot
   };
 }
+
+/** A native web3.js connection unless accountSync options are supplied. */
+export const Connection = createConnectionConstructor<
+  NodeAccountSyncConnectionConfig,
+  AccountSyncConnection
+>(AccountSyncConnection);
+
+export type Connection = Web3JsConnection;

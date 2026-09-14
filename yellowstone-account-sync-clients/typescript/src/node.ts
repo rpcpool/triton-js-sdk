@@ -1,5 +1,5 @@
 export * from "@solana/web3.js";
-export { Connection } from "./connection/node_connection";
+export { Connection, AccountSyncConnection } from "./connection/node_connection";
 export {
   AccountParseContextCache,
   ContextFetchError,
