@@ -19,7 +19,7 @@ import {
   reportExampleError,
 } from "./sdk_example_helpers.ts";
 
-const DEFAULT_RPC_ENDPOINT = "https://tritono-wilfred-33cf.mainnet.rpcpool.com/437887e6-e7ec-46a1-90c9-0903f2d2981f";
+const DEFAULT_RPC_ENDPOINT = "https://example.com/yourToken";
 const ACCOUNTS_CSV_PATH = fileURLToPath(
   new URL("../../../accounts.csv", import.meta.url),
 );
