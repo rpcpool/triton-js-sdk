@@ -9,7 +9,9 @@ use {
             SplTokenAdditionalDataV2,
         },
     },
-    solana_account_decoder_client_types::{UiAccountEncoding, UiDataSliceConfig},
+    solana_account_decoder_client_types::{
+        ParsedAccount, UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig,
+    },
     solana_pubkey::Pubkey,
     spl_token_2022_interface::{
         extension::{
@@ -229,20 +231,20 @@ fn encode_account_inner(
         executable: input.executable,
         rent_epoch: input.rent_epoch,
     };
-    let context = parse_account_context(context_json)?;
-    let additional_data = if matches!(encoding, WasmUiAccountEncoding::JsonParsed) {
-        build_additional_data(input, context.as_ref())?
+    let encoded = if matches!(encoding, WasmUiAccountEncoding::JsonParsed) {
+        let parsed = parse_account(&pubkey, &owner, &account.data, context_json)?;
+        UiAccount {
+            lamports: account.lamports,
+            data: UiAccountData::Json(parsed),
+            owner: owner.to_string(),
+            executable: account.executable,
+            rent_epoch: account.rent_epoch,
+            space: Some(account.data.len() as u64),
+        }
     } else {
-        None
+        let data_slice = parse_data_slice(data_slice_json)?;
+        encode_ui_account(&pubkey, &account, encoding.into(), None, data_slice)
     };
-    let data_slice = parse_data_slice(data_slice_json)?;
-    let encoded = encode_ui_account(
-        &pubkey,
-        &account,
-        encoding.into(),
-        additional_data,
-        data_slice,
-    );
 
     serde_json::to_string(&encoded).map_err(|error| AccountEncodingError::Parser(error.to_string()))
 }
@@ -254,12 +256,21 @@ fn parse_account_json_inner(
     let pubkey = parse_pubkey(&input.pubkey)?;
     let owner = parse_owner(&input.owner)?;
     let data = decode_base64_data(&input.data)?;
-    let context = parse_account_context(context_json)?;
-    let additional_data = build_additional_data(input, context.as_ref())?;
-    let parsed = parse_account_data_v3(&pubkey, &owner, &data, additional_data)
-        .map_err(|error| map_parse_error(error, &data))?;
+    let parsed = parse_account(&pubkey, &owner, &data, context_json)?;
 
     serde_json::to_string(&parsed).map_err(|error| AccountEncodingError::Parser(error.to_string()))
+}
+
+fn parse_account(
+    pubkey: &Pubkey,
+    owner: &Pubkey,
+    data: &[u8],
+    context_json: Option<String>,
+) -> Result<ParsedAccount, AccountEncodingError> {
+    let context = parse_account_context(context_json)?;
+    let additional_data = build_additional_data(data, context.as_ref())?;
+    parse_account_data_v3(pubkey, owner, data, additional_data)
+        .map_err(|error| map_parse_error(error, data))
 }
 
 fn convert_account_data_inner(
@@ -407,11 +418,10 @@ fn encode_account_data(
 }
 
 fn build_additional_data(
-    input: &WasmAccountInput,
+    data: &[u8],
     context: Option<&WasmAccountContext>,
 ) -> Result<Option<AccountAdditionalDataV3>, AccountEncodingError> {
-    let data = decode_base64_data(&input.data)?;
-    let Some(mint_pubkey) = spl_token_account_mint(&data) else {
+    let Some(mint_pubkey) = spl_token_account_mint(data) else {
         return Ok(None);
     };
 
@@ -530,6 +540,76 @@ mod tests {
         assert_eq!(value["data"][0], "AQID");
         assert_eq!(value["data"][1], "base64");
         assert_eq!(value["space"], 3);
+    }
+
+    #[test]
+    fn test_json_parsing_rejects_unsupported_and_malformed_accounts() {
+        for owner in [
+            Pubkey::new_from_array([99; 32]).to_string(),
+            "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA".to_string(),
+        ] {
+            let mut input = parse_account_input(&account_json(&[1])).unwrap();
+            input.owner = owner;
+            for result in [
+                encode_account_inner(&input, WasmUiAccountEncoding::JsonParsed, None, None),
+                parse_account_json_inner(&input, None),
+            ] {
+                assert!(matches!(result, Err(AccountEncodingError::Parser(_))));
+            }
+        }
+    }
+
+    #[test]
+    fn test_json_parsing_requires_mint_context() {
+        let input = token_account_input();
+        for result in [
+            encode_account_inner(&input, WasmUiAccountEncoding::JsonParsed, None, None),
+            parse_account_json_inner(&input, None),
+        ] {
+            assert!(matches!(
+                result,
+                Err(AccountEncodingError::MissingParseContext { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn test_json_encoding_matches_parser_and_ignores_slice() {
+        let input = token_account_input();
+        let mut mint = [0_u8; 82];
+        mint[44] = 6;
+        mint[45] = 1;
+        let context = serde_json::json!({
+            "splTokenMint": {
+                "pubkey": Pubkey::new_from_array([9; 32]).to_string(),
+                "data": BASE64_STANDARD.encode(mint),
+            },
+        })
+        .to_string();
+        let encoded = encode_account_inner(
+            &input,
+            WasmUiAccountEncoding::JsonParsed,
+            Some(context.clone()),
+            Some(r#"{"offset":0,"length":0}"#.to_string()),
+        )
+        .unwrap();
+        let parsed = parse_account_json_inner(&input, Some(context)).unwrap();
+        let encoded: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&parsed).unwrap();
+        assert_eq!(encoded["data"], parsed);
+        assert_eq!(encoded["space"], 165);
+        assert_eq!(parsed["program"], "spl-token");
+        assert_eq!(parsed["parsed"]["info"]["tokenAmount"]["decimals"], 6);
+    }
+
+    fn token_account_input() -> WasmAccountInput {
+        let mut data = [0_u8; 165];
+        data[..32].fill(9);
+        data[32..64].fill(10);
+        data[108] = 1;
+        let mut input = parse_account_input(&account_json(&data)).unwrap();
+        input.owner = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA".to_string();
+        input
     }
 
     #[test]

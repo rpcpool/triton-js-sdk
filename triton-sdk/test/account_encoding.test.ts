@@ -13,10 +13,12 @@ import {
   encodeAccount,
   loadAccountEncodingWasm,
   parseJsonParsed,
+  toWeb3JsParsedAccountInfo,
   type AccountDataEncoding,
   type EncodedAccountData,
   type AccountEncodingInput
 } from "../src/account_encoding";
+import { parseConnectionAccount } from "../src/connection/parsed_account";
 
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
@@ -144,7 +146,7 @@ describe("account encoding wasm wrapper", () => {
     });
   });
 
-  it("does not fall back for invalid jsonParsed account inputs by default", async () => {
+  it("rejects invalid jsonParsed account inputs", async () => {
     await expect(
       encodeAccount(
         {
@@ -320,14 +322,13 @@ describe("account encoding wasm wrapper", () => {
     });
   });
 
-  it("rejects invalid jsonParsed context values when fallback is disabled", async () => {
+  it("rejects invalid jsonParsed context values", async () => {
     const mint = pubkeyFromByte(15);
     const tokenOwner = pubkeyFromByte(16);
     const input = makeTokenAccountInput(mint, tokenOwner);
 
     await expect(
       parseJsonParsed(input, {
-        fallbackOnParseFailure: false,
         unixTimestamp: Number.MAX_SAFE_INTEGER + 1
       })
     ).rejects.toMatchObject({
@@ -337,7 +338,6 @@ describe("account encoding wasm wrapper", () => {
 
     await expect(
       parseJsonParsed(input, {
-        fallbackOnParseFailure: false,
         parseContext: {
           splTokenMint: {
             pubkey: "not a mint",
@@ -353,7 +353,6 @@ describe("account encoding wasm wrapper", () => {
 
     await expect(
       parseJsonParsed(input, {
-        fallbackOnParseFailure: false,
         parseContext: {
           splTokenMint: {
             pubkey: mint,
@@ -367,30 +366,24 @@ describe("account encoding wasm wrapper", () => {
     });
   });
 
-  it("maps parse context fetch failures to ContextFetchError when fallback is disabled", async () => {
+  it("reports connection context fetch failures with their cause", async () => {
     const mint = pubkeyFromByte(17);
     const tokenOwner = pubkeyFromByte(18);
     const input = makeTokenAccountInput(mint, tokenOwner);
-    const fetcher = vi.fn(async () => {
-      throw new Error("fetch failed");
-    });
+    const cause = new Error("fetch failed");
+    const fetcher = vi.fn(async () => { throw cause; });
 
     await expect(
-      parseJsonParsed(input, {
-        fallbackOnParseFailure: false,
-        parseContextFetcher: fetcher
-      })
+      parseConnectionAccount(input, fetcher, new AccountParseContextCache())
     ).rejects.toMatchObject({
       name: "ContextFetchError",
+      cause,
       missingAccount: mint.toBase58(),
       contextKind: "splTokenMint",
       encoding: "jsonParsed"
     });
     await expect(
-      parseJsonParsed(input, {
-        fallbackOnParseFailure: false,
-        parseContextFetcher: async () => null
-      })
+      parseConnectionAccount(input, async () => null, new AccountParseContextCache())
     ).rejects.toMatchObject({
       name: "ContextFetchError",
       message: `parse context account ${mint.toBase58()} is unavailable`,
@@ -400,22 +393,16 @@ describe("account encoding wasm wrapper", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to base64 when parse context fetch fails and fallback is enabled", async () => {
+  it("rejects a connection parse when fetched mint data is invalid", async () => {
     const mint = pubkeyFromByte(19);
     const tokenOwner = pubkeyFromByte(20);
     const input = makeTokenAccountInput(mint, tokenOwner);
 
-    const parsed = await parseJsonParsed(input, {
-      fallbackOnParseFailure: true,
-      parseContextFetcher: async () => {
-        throw new Error("fetch failed");
-      }
-    });
-
-    expect(parsed).toEqual([
-      makeTokenAccountData(mint, tokenOwner).toString("base64"),
-      "base64"
-    ]);
+    const fetcher = vi.fn(async () => ({ data: Buffer.from([1]) }));
+    await expect(
+      parseConnectionAccount(input, fetcher, new AccountParseContextCache())
+    ).rejects.toMatchObject({ name: "WasmParserError", encoding: "jsonParsed" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("fetches missing mint context once and re-runs jsonParsed parsing", async () => {
@@ -429,21 +416,16 @@ describe("account encoding wasm wrapper", () => {
     });
 
     const [parsedA, parsedB] = await Promise.all([
-      parseJsonParsed(input, { parseContextFetcher: fetcher, cache }),
-      parseJsonParsed(input, { parseContextFetcher: fetcher, cache })
+      parseConnectionAccount(input, fetcher, cache),
+      parseConnectionAccount(input, fetcher, cache)
     ]);
 
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(Array.isArray(parsedA)).toBe(false);
-    expect(Array.isArray(parsedB)).toBe(false);
-    if (Array.isArray(parsedA)) {
-      throw new Error("expected parsed token account data");
-    }
-
-    expect(parsedA.program).toBe("spl-token");
-    expect(parsedA.parsed.type).toBe("account");
-    expect(parsedA.parsed.info.mint).toBe(mint.toBase58());
-    expect(parsedA.parsed.info.tokenAmount.decimals).toBe(6);
+    expect(parsedA).toEqual(parsedB);
+    expect(parsedA.data.program).toBe("spl-token");
+    expect(parsedA.data.parsed.type).toBe("account");
+    expect(parsedA.data.parsed.info.mint).toBe(mint.toBase58());
+    expect(parsedA.data.parsed.info.tokenAmount.decimals).toBe(6);
   });
 
   it("encodes SPL token accounts as jsonParsed when mint context is provided", async () => {
@@ -475,17 +457,59 @@ describe("account encoding wasm wrapper", () => {
     expect(info.tokenAmount.decimals).toBe(6);
   });
 
-  it("falls back to base64 data when jsonParsed context is unavailable", async () => {
+  it("rejects jsonParsed encoding when context is unavailable", async () => {
     const mint = pubkeyFromByte(13);
     const tokenOwner = pubkeyFromByte(14);
     const input = makeTokenAccountInput(mint, tokenOwner);
 
-    const account = await encodeAccount(input, "jsonParsed");
+    await expect(encodeAccount(input, "jsonParsed")).rejects.toMatchObject({
+      name: "MissingParseContextError",
+      missingAccounts: [mint.toBase58()],
+      contextKind: "splTokenMint"
+    });
+  });
 
-    expect(account.data).toEqual([
-      makeTokenAccountData(mint, tokenOwner).toString("base64"),
-      "base64"
-    ]);
+  it.each(["encode", "parse"] as const)("%s rejects unsupported programs and malformed accounts", async (method) => {
+    const run = method === "encode"
+      ? (input: AccountEncodingInput) => encodeAccount(input, "jsonParsed")
+      : parseJsonParsed;
+    for (const owner of [pubkeyFromByte(99), TOKEN_PROGRAM_ID]) {
+      await expect(run({ ...makeAccountInput(Buffer.from([1])), owner }))
+        .rejects.toMatchObject({ name: "WasmParserError", encoding: "jsonParsed" });
+    }
+  });
+
+  it.each(["encode", "parse"] as const)("%s rejects invalid WASM JSON without retrying", async (method) => {
+    const realWasm = await loadAccountEncodingWasm();
+    const invalidJson = vi.fn(() => "not JSON");
+    const wasm = { ...realWasm, encode_account: invalidJson, parse_account_json: invalidJson };
+    const input = makeAccountInput(Buffer.from([1]));
+    const result = method === "encode"
+      ? encodeAccount(input, "jsonParsed", { wasm })
+      : parseJsonParsed(input, { wasm });
+    await expect(result).rejects.toMatchObject({
+      name: "WasmParserError", message: "WASM returned invalid JSON", cause: expect.any(SyntaxError)
+    });
+    expect(invalidJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the same parsed data from both helpers and ignores dataSlice", async () => {
+    const input = makeTokenAccountInput(pubkeyFromByte(11), pubkeyFromByte(12));
+    const options = {
+      parseContext: { splTokenMint: { pubkey: pubkeyFromByte(11), data: makeMintData(6) } },
+      dataSlice: { offset: 0, length: 0 }
+    };
+    const parsed = await parseJsonParsed(input, options);
+    const encoded = await encodeAccount(input, "jsonParsed", options);
+    expect(encoded.data).toEqual(parsed);
+    expect(parsed.parsed.info.tokenAmount.decimals).toBe(6);
+    expect(encoded.space).toBe(165);
+    expect(encoded.lamports).toBe(2_039_280);
+  });
+
+  it("rejects raw data in the parsed account adapter", async () => {
+    const raw = await encodeAccount(makeAccountInput(Buffer.from([1])), "base64");
+    expect(() => toWeb3JsParsedAccountInfo(raw)).toThrow(UnsupportedEncodingError);
   });
 
   it("evicts old cache entries by LRU order", () => {
