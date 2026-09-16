@@ -1,6 +1,6 @@
 {
   "name": "@triton-one/triton-sdk",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Solana web3.js compatible SDK client for Triton One services",
   "type": "module",
   "sideEffects": false,
