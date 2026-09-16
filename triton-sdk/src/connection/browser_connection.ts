@@ -10,9 +10,7 @@ import {
 } from "@solana/web3.js";
 import {
   AccountParseContextCache,
-  bufferedAccountToEncodingInput,
-  encodeAccount,
-  toWeb3JsParsedAccountInfo
+  bufferedAccountToEncodingInput
 } from "../account_encoding";
 import {
   AccountSyncCore,
@@ -28,6 +26,7 @@ import {
 } from "../core/types";
 import { RpcInitialStatePlugin } from "../plugins/rpc_initial_state";
 import { createConnectionConstructor } from "./connection_selector";
+import { parseConnectionAccount } from "./parsed_account";
 import { WsAccountSubscriptionTransport, type WebSocketLike } from "../transport/ws";
 import {
   buildWeb3JsConnectionCtorArg,
@@ -243,8 +242,7 @@ export class AccountSyncConnection extends Web3JsConnection {
    * Reads and parses one account from the local account-sync buffer.
    *
    * The parser may read supporting accounts, such as an SPL token mint, through
-   * this connection. Unsupported parsers and unavailable parse context fall
-   * back to raw base64 account data, matching web3.js response behavior.
+   * this connection. Parse failures and unavailable context reject the read.
    *
    * @param publicKey Address of the account to read.
    * @param commitmentOrConfig Commitment or web3.js account read options.
@@ -256,7 +254,7 @@ export class AccountSyncConnection extends Web3JsConnection {
   public override async getParsedAccountInfo(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
-  ): Promise<RpcResponseAndContext<AccountInfo<Buffer | ParsedAccountData> | null>> {
+  ): Promise<RpcResponseAndContext<AccountInfo<ParsedAccountData> | null>> {
     const options = resolveGetAccountInfoOptions(
       commitmentOrConfig,
       this.accountSyncCommitment
@@ -308,8 +306,8 @@ export class AccountSyncConnection extends Web3JsConnection {
   /**
    * Reads and parses several accounts from the local account-sync buffer.
    *
-   * Results preserve input order and duplicate keys. Unsupported parsers and
-   * unavailable parse context fall back to raw base64 account data.
+   * Results preserve input order and duplicate keys. A parse or context fetch
+   * failure rejects the entire read. Missing accounts return `null`.
    *
    * @param publicKeys Addresses of the accounts to read.
    * @param rawConfig web3.js multiple-account read options.
@@ -319,7 +317,7 @@ export class AccountSyncConnection extends Web3JsConnection {
   public override async getMultipleParsedAccounts(
     publicKeys: PublicKey[],
     rawConfig?: GetMultipleAccountsConfig
-  ): Promise<RpcResponseAndContext<(AccountInfo<Buffer | ParsedAccountData> | null)[]>> {
+  ): Promise<RpcResponseAndContext<(AccountInfo<ParsedAccountData> | null)[]>> {
     const options = resolveGetMultipleAccountsInfoOptions(
       rawConfig,
       this.accountSyncCommitment
@@ -528,19 +526,12 @@ export class AccountSyncConnection extends Web3JsConnection {
   private async toParsedAccountInfo(
     state: BufferedAccountState,
     options: ResolvedGetAccountInfoOptions
-  ): Promise<AccountInfo<Buffer | ParsedAccountData>> {
-    const uiAccount = await encodeAccount(
+  ): Promise<AccountInfo<ParsedAccountData>> {
+    return parseConnectionAccount(
       bufferedAccountToEncodingInput(state),
-      "jsonParsed",
-      {
-        dataSlice: options.dataSlice,
-        parseContextFetcher: (contextPubkey) =>
-          this.getAccountInfo(contextPubkey, contextFetchConfig(options)),
-        cache: this.accountParseContextCache
-      }
+      (contextPubkey) => this.getAccountInfo(contextPubkey, contextFetchConfig(options)),
+      this.accountParseContextCache
     );
-
-    return toWeb3JsParsedAccountInfo(uiAccount);
   }
 }
 

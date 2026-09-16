@@ -149,11 +149,11 @@ export type EncodedAccountData =
   | ParsedAccountData;
 
 /** JSON-compatible account information in Solana RPC response form. */
-export interface UiAccount {
+export interface UiAccount<T = EncodedAccountData> {
   /** Account balance in lamports. */
   lamports: number;
   /** Account data encoded in the requested form. */
-  data: EncodedAccountData;
+  data: T;
   /** Base58 address of the program that owns the account. */
   owner: string;
   /** Whether the account contains an executable program. */
@@ -240,12 +240,6 @@ export interface AccountEncodingOptions {
   dataSlice?: DataSlice;
   /** Parser inputs already available to the caller. */
   parseContext?: AccountParseContext;
-  /** Loader used when parsing reports that another account is required. */
-  parseContextFetcher?: AccountParseContextFetcher;
-  /** Cache used for accounts loaded through `parseContextFetcher`. */
-  cache?: AccountParseContextCache;
-  /** Whether parse errors return raw base64 data instead. The default depends on the function. */
-  fallbackOnParseFailure?: boolean;
   /** Unix time in seconds. Overrides `parseContext.unixTimestamp`. */
   unixTimestamp?: number;
 }
@@ -367,7 +361,7 @@ export declare function isBase64ZstdEncodingSupported(): boolean;
 /**
  * Encodes raw account values in Solana RPC account form.
  *
- * Parsed output falls back to raw base64 data by default.
+ * Parsed output requires supplied context and rejects on parse failure.
  *
  * @param input Raw account values to encode.
  * @param encoding Requested account data encoding.
@@ -376,7 +370,6 @@ export declare function isBase64ZstdEncodingSupported(): boolean;
  * @throws {@link UnsupportedEncodingError} for an unsupported encoding or parser.
  * @throws {@link InvalidAccountDataError} for invalid account values.
  * @throws {@link MissingParseContextError} when required parse context is unavailable.
- * @throws {@link ContextFetchError} when loading parse context fails.
  * @throws {@link WasmParserError} when the bundled parser fails unexpectedly.
  *
  * @example
@@ -389,26 +382,30 @@ export declare function isBase64ZstdEncodingSupported(): boolean;
  */
 export declare function encodeAccount(
   input: AccountEncodingInput,
+  encoding: "jsonParsed",
+  options?: AccountEncodingOptions
+): Promise<UiAccount<ParsedAccountData>>;
+export declare function encodeAccount(
+  input: AccountEncodingInput,
   encoding: AccountDataEncoding,
   options?: AccountEncodingOptions
 ): Promise<UiAccount>;
 /**
  * Parses raw account values with Solana's program-aware parsers.
  *
- * Parse failures reject by default. Set `fallbackOnParseFailure` to receive raw base64 data.
+ * Parsing runs once with the supplied context and rejects on failure.
  *
  * @param input Raw account values to parse.
- * @param options Parser context, loader, cache, and fallback settings.
- * @returns Parsed account data, or a base64 tuple when fallback is enabled.
+ * @param options Supplied parser context. Data slicing does not apply to parsed output.
+ * @returns Parsed account data.
  * @throws {@link InvalidAccountDataError} for invalid account values.
  * @throws {@link MissingParseContextError} when required parse context is unavailable.
- * @throws {@link ContextFetchError} when loading parse context fails.
  * @throws {@link WasmParserError} when the bundled parser fails unexpectedly.
  */
 export declare function parseJsonParsed(
   input: AccountEncodingInput,
   options?: AccountEncodingOptions
-): Promise<ParsedAccountData | [string, "base64"]>;
+): Promise<ParsedAccountData>;
 /**
  * Converts raw account data between binary encodings.
  *
@@ -457,12 +454,12 @@ export declare function bufferedAccountToEncodingInput(
  * Converts a JSON-compatible account into the web3.js parsed account shape.
  *
  * @param account Account returned by {@link encodeAccount} using `"jsonParsed"`.
- * @returns Account information with a `PublicKey` owner and parsed or raw data.
+ * @returns Account information with a `PublicKey` owner and parsed data.
  * @throws {@link UnsupportedEncodingError} for an unsupported account data shape.
  */
 export declare function toWeb3JsParsedAccountInfo(
   account: UiAccount
-): AccountInfo<Buffer | ParsedAccountData>;
+): AccountInfo<ParsedAccountData>;
 
 /**
  * A drop-in web3.js connection with locally buffered account reads for Node.js.
@@ -594,7 +591,7 @@ export declare class AccountSyncConnection extends Web3JsConnection {
   /**
    * Reads and parses one account from the local account-sync buffer.
    *
-   * Unsupported parsers and unavailable parse context fall back to raw base64 data.
+   * Parse failures and unavailable context reject the read.
    *
    * @param publicKey Address of the account to read.
    * @param commitmentOrConfig Commitment or web3.js account read options.
@@ -604,13 +601,13 @@ export declare class AccountSyncConnection extends Web3JsConnection {
   getParsedAccountInfo(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
-  ): Promise<RpcResponseAndContext<AccountInfo<Buffer | ParsedAccountData> | null>>;
+  ): Promise<RpcResponseAndContext<AccountInfo<ParsedAccountData> | null>>;
 
   /**
    * Reads and parses several accounts from the local buffer.
    *
-   * Results preserve input order and duplicates. Unsupported parsers fall back
-   * to raw base64 data. The context uses the lowest observation slot.
+   * Results preserve input order and duplicates. Parse failures reject the read.
+   * Missing accounts return `null`. The context uses the lowest observation slot.
    *
    * @param publicKeys Addresses of the accounts to read.
    * @param rawConfig web3.js multiple-account read options.
@@ -620,7 +617,7 @@ export declare class AccountSyncConnection extends Web3JsConnection {
   getMultipleParsedAccounts(
     publicKeys: PublicKey[],
     rawConfig?: GetMultipleAccountsConfig
-  ): Promise<RpcResponseAndContext<(AccountInfo<Buffer | ParsedAccountData> | null)[]>>;
+  ): Promise<RpcResponseAndContext<(AccountInfo<ParsedAccountData> | null)[]>>;
 
   /**
    * Reads several accounts and a shared context from the local buffer.
