@@ -14,7 +14,7 @@
     "example:multiple:grpc:data-slice": "tsx src/get_multiple_accounts_info_data_slice_grpc.ts",
     "example:multiple:grpc:min-context-slot": "tsx src/get_multiple_accounts_info_min_context_slot_grpc.ts",
     "example:grpc:lifecycle": "tsx src/account_lifecycle_grpc.ts",
-    "example:compare:get-account-info": "tsx src/compare_get_account_info_latency.ts"
+    "example:compare:get-multiple-accounts-info": "tsx src/compare_get_multiple_accounts_info_latency.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",

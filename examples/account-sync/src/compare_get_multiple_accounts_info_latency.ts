@@ -21,7 +21,7 @@ import {
 
 const DEFAULT_RPC_ENDPOINT = "https://example.com/yourToken";
 const ACCOUNTS_CSV_PATH = fileURLToPath(
-  new URL("../accounts.csv", import.meta.url),
+  new URL("../../accounts.csv", import.meta.url),
 );
 const ACCOUNT_COUNT = 100;
 const DEFAULT_POLL_INTERVAL_MS = 250;
