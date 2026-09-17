@@ -92,7 +92,7 @@ use WebSocket. The gRPC examples use the Node-only `grpc-js` transport.
 ## Compare `getMultipleAccountsInfo` Response Times
 
 This example calls the Triton SDK and standard web3.js client concurrently. It
-loads the first 100 unique accounts from `../../accounts.csv` and passes the
+loads the first 100 unique accounts from `../accounts.csv` and passes the
 same ordered list to both clients. It hashes each full ordered result and prints
 one row when both results match and that full result has not been printed
 before. Each duration covers the full 100-account request.
