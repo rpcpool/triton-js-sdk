@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-import "geyser.proto";
-
-service YellowstoneAccountSyncGrpcService {
-  rpc Subscribe(stream geyser.SubscribeRequest) returns (stream geyser.SubscribeUpdate) {}
-}

@@ -1,13 +1,15 @@
+TRITON_RUST_SDK_DIR := triton-rust-sdk
+TRITON_RUST_SDK_TAG := sdk-v0.1.0
 YELLOWSTONE_GRPC_DIR := yellowstone-account-sync-proto/proto/yellowstone-grpc
-YELLOWSTONE_GRPC_TAG := client-v13.3.0
 
 .PHONY: setup-submodules
 setup-submodules:
-	git submodule update --init $(YELLOWSTONE_GRPC_DIR)
-	git -C $(YELLOWSTONE_GRPC_DIR) fetch --tags
-	git -C $(YELLOWSTONE_GRPC_DIR) checkout $(YELLOWSTONE_GRPC_TAG)
-	git -C $(YELLOWSTONE_GRPC_DIR) sparse-checkout init --cone
-	git -C $(YELLOWSTONE_GRPC_DIR) sparse-checkout set yellowstone-grpc-proto
+	git submodule update --init $(TRITON_RUST_SDK_DIR)
+	git -C $(TRITON_RUST_SDK_DIR) fetch --tags
+	git -C $(TRITON_RUST_SDK_DIR) checkout --detach refs/tags/$(TRITON_RUST_SDK_TAG)
+	git -C $(TRITON_RUST_SDK_DIR) sparse-checkout set --no-cone '/.gitmodules' '/yellowstone-account-sync-proto/proto/*.proto' '/$(YELLOWSTONE_GRPC_DIR)'
+	git -C $(TRITON_RUST_SDK_DIR) submodule update --init $(YELLOWSTONE_GRPC_DIR)
+	git -C $(TRITON_RUST_SDK_DIR)/$(YELLOWSTONE_GRPC_DIR) sparse-checkout set --no-cone '/yellowstone-grpc-proto/proto/*.proto'
 
 clean: clean-nodejs clean-rust
 
