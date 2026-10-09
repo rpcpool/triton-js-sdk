@@ -13,14 +13,40 @@ import {
 
 export * from "@solana/web3.js";
 
-/** A native web3.js connection unless accountSync options are supplied. */
+/**
+ * Create a Solana connection with optional account-sync reads.
+ *
+ * Supplying accountSync selects AccountSyncConnection. Omitting it uses the
+ * native web3.js Connection with the supplied commitment and connection options.
+ *
+ * @param endpoint URL of the Solana JSON RPC endpoint.
+ * @param config Optional default commitment or connection options.
+ * @returns The connection selected by the accountSync settings.
+ * @throws Error when the endpoint or connection settings are invalid.
+ */
 export declare const Connection: {
+  /**
+   * Create a connection with account-sync reads enabled.
+   *
+   * @param endpoint URL of the Solana JSON RPC endpoint.
+   * @param config Connection options with account-sync settings.
+   * @returns A connection that serves account reads through account-sync.
+   * @throws Error when the endpoint or account-sync settings are invalid.
+   */
   new (
     endpoint: string,
     config: BrowserAccountSyncConnectionConfig & {
       accountSync: NonNullable<BrowserAccountSyncConnectionConfig["accountSync"]>;
     }
   ): AccountSyncConnection;
+  /**
+   * Create a connection using the supplied commitment or options.
+   *
+   * @param endpoint URL of the Solana JSON RPC endpoint.
+   * @param config Optional default commitment or connection options.
+   * @returns An account-sync connection when accountSync is supplied, or a native web3.js connection otherwise.
+   * @throws Error when the endpoint or connection settings are invalid.
+   */
   new (endpoint: string, config?: Commitment | BrowserAccountSyncConnectionConfig): Web3JsConnection;
 };
 
@@ -300,16 +326,22 @@ export declare class WasmParserError extends Error {
  */
 export declare class AccountParseContextCache {
   /**
+   * Create a cache for accounts used during parsing.
+   *
    * @param options Capacity and expiry settings.
    * @throws `Error` if an option is not a positive safe integer.
    */
   constructor(options?: AccountParseContextCacheOptions);
   /**
+   * Read a cached entry and mark it as recently used without extending its expiry.
+   *
    * @param pubkey Address of the context account.
    * @returns A cached account, `null` for a cached miss, or `undefined` when absent or expired.
    */
   get(pubkey: string | PublicKey): AccountParseContextAccount | null | undefined;
   /**
+   * Store an account or a known missing-account result until the cache entry expires.
+   *
    * @param pubkey Address of the context account.
    * @param value Account data, or `null` when the account does not exist.
    */
@@ -320,12 +352,18 @@ export declare class AccountParseContextCache {
    * @param pubkey Address of the context account.
    * @param loader Function used to load an uncached account.
    * @returns The loaded account, or `null` when it does not exist.
+   * @throws Error when the loader rejects. The failure is passed to the caller.
    */
   getOrLoad(
     pubkey: string | PublicKey,
     loader: () => Promise<AccountParseContextAccount | null>
   ): Promise<AccountParseContextAccount | null>;
-  /** Removes all cached values and detaches all in-flight loads. */
+  /**
+   * Remove all cached values and prevent pending loads from storing their results.
+   *
+   * Pending loads continue and still settle for their existing callers.
+   * @returns Nothing.
+   */
   clear(): void;
 }
 
@@ -338,12 +376,38 @@ export declare class AccountParseContextCache {
 export declare function loadAccountEncodingWasm(): Promise<unknown>;
 /** @returns Whether this build supports `"base64+zstd"`. */
 export declare function isBase64ZstdEncodingSupported(): boolean;
-/** Encodes account data; jsonParsed falls back to base64 when parsing is unavailable. */
+/**
+ * Encode an account as parsed JSON, with base64 bytes as the fallback.
+ *
+ * Supply mint and time data through options when the account's parser needs it.
+ * Parsed JSON is not sliced. Raw fallback applies dataSlice except for SPL Token
+ * accounts, whose JSON encoding follows RPC's unsliced token path.
+ *
+ * @param input Account address, owner, balance, rent epoch, executable flag, and raw data.
+ * @param encoding The jsonParsed encoding.
+ * @param options Optional data slice and token mint or time information.
+ * @returns An RPC account containing parsed JSON or a base64 data tuple when parsing is unavailable.
+ * @throws InvalidAccountDataError when account values, context, or slice options are invalid.
+ * @throws WasmParserError when the WASM encoder fails or returns invalid JSON.
+ * @throws Error when the WASM module cannot be loaded or initialized.
+ */
 export declare function encodeAccount(
   input: AccountEncodingInput,
   encoding: "jsonParsed",
   options?: AccountEncodingOptions
 ): Promise<UiAccount<ParsedAccountData | [string, "base64"]>>;
+/**
+ * Encode raw account values in Solana RPC account form.
+ *
+ * @param input Account address, owner, balance, rent epoch, executable flag, and raw data.
+ * @param encoding Requested account data encoding.
+ * @param options Optional data slice and token mint or time information.
+ * @returns An RPC account in the requested encoding, with base64 fallback when JSON parsing is unavailable.
+ * @throws UnsupportedEncodingError when the requested encoding is not supported.
+ * @throws InvalidAccountDataError when account values, context, or slice options are invalid.
+ * @throws WasmParserError when the WASM encoder fails or returns invalid JSON.
+ * @throws Error when the WASM module cannot be loaded or initialized.
+ */
 export declare function encodeAccount(
   input: AccountEncodingInput,
   encoding: AccountDataEncoding,
@@ -361,6 +425,8 @@ export declare function encodeAccount(
  * @returns The same account bytes encoded using `to`.
  * @throws {@link UnsupportedEncodingError} when either encoding is `"jsonParsed"`.
  * @throws {@link InvalidAccountDataError} when `input` is invalid for `from`.
+ * @throws WasmParserError when the WASM encoder fails.
+ * @throws Error when the WASM module cannot be loaded or initialized.
  *
  * @example
  * ```ts
@@ -393,7 +459,17 @@ export declare function accountInfoToEncodingInput(
 export declare function bufferedAccountToEncodingInput(
   state: BufferedAccountState
 ): AccountEncodingInput;
-/** Converts JSON or base64 account data into the web3.js response shape. */
+/**
+ * Convert an encoded account into the web3.js parsed-account response shape.
+ *
+ * Preserves the account fields, converts the owner to PublicKey, and converts
+ * base64 data to Buffer. Parsed JSON data is returned as an object.
+ *
+ * @param account RPC account returned by encodeAccount with jsonParsed encoding.
+ * @returns Account information containing a Buffer or ParsedAccountData.
+ * @throws UnsupportedEncodingError when data is neither parsed JSON nor a base64 tuple.
+ * @throws Error when the owner is not a valid public key.
+ */
 export declare function toWeb3JsParsedAccountInfo(
   account: UiAccount
 ): AccountInfo<Buffer | ParsedAccountData>;
@@ -512,13 +588,36 @@ export declare class AccountSyncConnection extends Web3JsConnection {
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
   ): Promise<RpcResponseAndContext<AccountInfo<Buffer> | null>>;
 
-  /** Returns parsed data or raw bytes with observation context, or null for a missing account. */
+  /**
+   * Fetch parsed account info for the specified public key.
+   *
+   * Reads from the account-sync buffer. Data is parsed JSON when supported and a
+   * Buffer otherwise. Token parsing can read the mint and Clock accounts.
+   *
+   * @param publicKey Public key of the account to fetch.
+   * @param commitmentOrConfig Optional commitment or account read options, including minContextSlot and dataSlice.
+   * @returns The account and its observation context, with value set to null when the account does not exist.
+   * @throws AccountSyncReadTimeoutError when a required buffered read times out.
+   * @throws Error when options are invalid, the connection is closed, a required fetch fails, or WASM cannot run.
+   */
   getParsedAccountInfo(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
   ): Promise<RpcResponseAndContext<AccountInfo<Buffer | ParsedAccountData> | null>>;
 
-  /** Returns parsed data, raw bytes, or null in input order with the lowest observation slot. */
+  /**
+   * Fetch parsed account info for the specified public keys.
+   *
+   * Preserves input order and duplicate keys. Each value contains parsed JSON,
+   * raw bytes as a Buffer, or null for a missing account. The context slot is the
+   * lowest observation slot across the requested accounts.
+   *
+   * @param publicKeys Public keys of the accounts to fetch.
+   * @param rawConfig Optional commitment, minimum context slot, and data slice.
+   * @returns Account values and their shared observation context.
+   * @throws AccountSyncReadTimeoutError when any required buffered read times out.
+   * @throws Error when options are invalid, the connection is closed, a required fetch fails, or WASM cannot run.
+   */
   getMultipleParsedAccounts(
     publicKeys: PublicKey[],
     rawConfig?: GetMultipleAccountsConfig

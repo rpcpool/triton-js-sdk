@@ -257,7 +257,18 @@ export class AccountSyncConnection extends Web3JsConnection {
     }
   }
 
-  /** Returns parsed data or raw bytes with observation context, or null for a missing account. */
+  /**
+   * Fetch parsed account info for the specified public key.
+   *
+   * Reads from the account-sync buffer. Data is parsed JSON when supported and a
+   * Buffer otherwise. Token parsing can read the mint and Clock accounts.
+   *
+   * @param publicKey Public key of the account to fetch.
+   * @param commitmentOrConfig Optional commitment or account read options, including minContextSlot and dataSlice.
+   * @returns The account and its observation context, with value set to null when the account does not exist.
+   * @throws AccountSyncReadTimeoutError when a required buffered read times out.
+   * @throws Error when options are invalid, the connection is closed, a required fetch fails, or WASM cannot run.
+   */
   public override async getParsedAccountInfo(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
@@ -310,7 +321,19 @@ export class AccountSyncConnection extends Web3JsConnection {
     };
   }
 
-  /** Returns parsed data, raw bytes, or null in input order with the lowest observation slot. */
+  /**
+   * Fetch parsed account info for the specified public keys.
+   *
+   * Preserves input order and duplicate keys. Each value contains parsed JSON,
+   * raw bytes as a Buffer, or null for a missing account. The context slot is the
+   * lowest observation slot across the requested accounts.
+   *
+   * @param publicKeys Public keys of the accounts to fetch.
+   * @param rawConfig Optional commitment, minimum context slot, and data slice.
+   * @returns Account values and their shared observation context.
+   * @throws AccountSyncReadTimeoutError when any required buffered read times out.
+   * @throws Error when options are invalid, the connection is closed, a required fetch fails, or WASM cannot run.
+   */
   public override async getMultipleParsedAccounts(
     publicKeys: PublicKey[],
     rawConfig?: GetMultipleAccountsConfig
@@ -554,7 +577,17 @@ function contextFetchConfig(
   };
 }
 
-/** A native web3.js connection unless accountSync options are supplied. */
+/**
+ * Create a Solana connection with optional account-sync reads.
+ *
+ * Supplying accountSync selects AccountSyncConnection. Omitting it uses the
+ * native web3.js Connection with the supplied commitment and connection options.
+ *
+ * @param endpoint URL of the Solana JSON RPC endpoint.
+ * @param config Optional default commitment or connection options.
+ * @returns The connection selected by the accountSync settings.
+ * @throws Error when the endpoint or connection settings are invalid.
+ */
 export const Connection = createConnectionConstructor<
   NodeAccountSyncConnectionConfig,
   AccountSyncConnection
