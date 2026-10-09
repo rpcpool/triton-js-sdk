@@ -8,7 +8,7 @@ import {
 import initAccountEncodingWasm, {
   convert_account_data,
   encode_account,
-  parse_account_json,
+  get_account_mint,
   WasmUiAccountEncoding
 } from "./wasm/account_encoding/yellowstone_account_sync_account_encoding_wasm.js";
 import type { BufferedAccountState } from "./core/types";
@@ -54,7 +54,7 @@ export interface UiAccount<T = EncodedAccountData> {
   space?: number;
 }
 
-/** Raw account values accepted by {@link encodeAccount} and {@link parseJsonParsed}. */
+/** Raw account values accepted by {@link encodeAccount}. */
 export interface AccountEncodingInput {
   /** Address of the account being encoded. */
   pubkey: string | PublicKey;
@@ -104,7 +104,7 @@ export type AccountParseContextFetcher = (
   pubkey: PublicKey
 ) => Promise<AccountInfo<Buffer> | AccountParseContextAccount | null>;
 
-/** Options shared by {@link encodeAccount} and {@link parseJsonParsed}. */
+/** Options for {@link encodeAccount}. */
 export interface AccountEncodingOptions {
   /** Byte range to return for raw encodings. `space` still reports the full data size. */
   dataSlice?: DataSlice;
@@ -457,7 +457,7 @@ export interface AccountEncodingWasm {
     contextJson?: string | null,
     dataSliceJson?: string | null
   ): string;
-  parse_account_json(accountJson: string, contextJson?: string | null): string;
+  get_account_mint(owner: string, data: string): string | undefined;
   convert_account_data(
     input: string,
     from: WasmUiAccountEncoding,
@@ -519,35 +519,12 @@ export async function loadAccountEncodingWasm(): Promise<AccountEncodingWasm> {
   return wasmInitPromise;
 }
 
-/**
- * Encodes raw account values in Solana RPC account form.
- *
- * `"jsonParsed"` output requires any supporting data in `options.parseContext`.
- * Parsing runs once and rejects on failure.
- *
- * @param input Raw account values to encode.
- * @param encoding Requested account data encoding.
- * @param options Data slicing and parsed-account context options.
- * @returns A JSON-compatible account value in the requested encoding.
- * @throws {@link UnsupportedEncodingError} when the requested encoding or parser is unsupported.
- * @throws {@link InvalidAccountDataError} when an account field or encoded value is invalid.
- * @throws {@link MissingParseContextError} when parsing needs context that is unavailable.
- * @throws {@link WasmParserError} when the bundled parser fails unexpectedly.
- *
- * @example
- * ```ts
- * const encoded = await encodeAccount(
- *   accountInfoToEncodingInput(address, accountInfo),
- *   "base64"
- * );
- * console.log(encoded.data);
- * ```
- */
+/** Encodes account data; jsonParsed falls back to base64 when parsing is unavailable. */
 export function encodeAccount(
   input: AccountEncodingInput,
   encoding: "jsonParsed",
   options?: AccountEncodingOptions
-): Promise<UiAccount<ParsedAccountData>>;
+): Promise<UiAccount<ParsedAccountData | [string, "base64"]>>;
 export function encodeAccount(
   input: AccountEncodingInput,
   encoding: AccountDataEncoding,
@@ -570,7 +547,7 @@ export async function encodeAccount(
         normalizedEncoding === "jsonParsed"
           ? contextJson(normalizeParseContext(options))
           : null,
-        normalizedEncoding === "jsonParsed" ? null : dataSliceJson(options.dataSlice)
+        dataSliceJson(options.dataSlice)
       )
     );
   } catch (error) {
@@ -582,31 +559,12 @@ export async function encodeAccount(
   }
 }
 
-/**
- * Parses raw account values using Solana's program-aware account parsers.
- *
- * Parsing runs once with the supplied context and rejects on failure.
- *
- * @param input Raw account values to parse.
- * @param options Supplied parser context. Data slicing does not apply to parsed output.
- * @returns Parsed account data.
- * @throws {@link InvalidAccountDataError} when an account field is invalid.
- * @throws {@link MissingParseContextError} when parsing needs context that is unavailable.
- * @throws {@link WasmParserError} when the bundled parser fails unexpectedly.
- */
-export async function parseJsonParsed(
-  input: AccountEncodingInput,
-  options: AccountEncodingOptions = {}
-): Promise<ParsedAccountData> {
+/** Finds a token account's mint using the Solana decoder. */
+export async function getAccountMint(input: AccountEncodingInput): Promise<string | undefined> {
   const account = normalizeAccountInput(input, "jsonParsed");
-  const wasm = options.wasm ?? (await loadAccountEncodingWasm());
+  const wasm = await loadAccountEncodingWasm();
   try {
-    return parseWasmJson<ParsedAccountData>(
-      wasm.parse_account_json(
-        accountPayloadJson(account),
-        contextJson(normalizeParseContext(options))
-      )
-    );
+    return wasm.get_account_mint(account.owner, account.data);
   } catch (error) {
     throw mapWasmError(error, {
       pubkey: account.pubkey,
@@ -702,17 +660,12 @@ export function accountInfoToEncodingInput(
   };
 }
 
-/**
- * Converts a JSON-compatible account into the web3.js parsed account shape.
- *
- * @param account Account returned by {@link encodeAccount} using `"jsonParsed"`.
- * @returns Account information with a `PublicKey` owner and parsed data.
- * @throws {@link UnsupportedEncodingError} when `account.data` is not a supported parsed-account shape.
- */
+/** Converts JSON or base64 account data into the web3.js response shape. */
 export function toWeb3JsParsedAccountInfo(
   account: UiAccount
-): AccountInfo<ParsedAccountData> {
+): AccountInfo<Buffer | ParsedAccountData> {
   return {
+    ...account,
     executable: account.executable,
     owner: new PublicKey(account.owner),
     lamports: account.lamports,
@@ -728,7 +681,7 @@ async function initializeWasm(): Promise<AccountEncodingWasm> {
   await initAccountEncodingWasm({ module_or_path: await resolveWasmInitInput() });
   return {
     encode_account,
-    parse_account_json,
+    get_account_mint,
     convert_account_data
   };
 }
@@ -939,15 +892,14 @@ function parseWasmJson<T>(json: string): T {
 function toWeb3JsParsedAccountData(
   data: EncodedAccountData,
   metadata: AccountEncodingErrorMetadata
-): ParsedAccountData {
-  if (Array.isArray(data) || typeof data === "string") {
-    throw new UnsupportedEncodingError(
-      "expected parsed account data",
-      metadata
-    );
+): Buffer | ParsedAccountData {
+  if (Array.isArray(data) && data.length === 2 && typeof data[0] === "string" && data[1] === "base64") {
+    return Buffer.from(data[0], "base64");
   }
-
-  return data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    if (typeof data.program === "string" && typeof data.space === "number") return data;
+  }
+  throw new UnsupportedEncodingError("expected parsed account data or base64 bytes", metadata);
 }
 
 function toBuffer(value: Uint8Array | Buffer): Buffer {

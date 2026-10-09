@@ -238,23 +238,11 @@ export class AccountSyncConnection extends Web3JsConnection {
     }
   }
 
-  /**
-   * Reads and parses one account from the local account-sync buffer.
-   *
-   * The parser may read supporting accounts, such as an SPL token mint, through
-   * this connection. Parse failures and unavailable context reject the read.
-   *
-   * @param publicKey Address of the account to read.
-   * @param commitmentOrConfig Commitment or web3.js account read options.
-   * @returns Parsed account information and its observation context, or `null`
-   * when the account does not exist.
-   * @throws {@link AccountSyncReadTimeoutError} when a required buffered read
-   * cannot be satisfied before `missTimeoutMs`.
-   */
+  /** Returns parsed data or raw bytes with observation context, or null for a missing account. */
   public override async getParsedAccountInfo(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
-  ): Promise<RpcResponseAndContext<AccountInfo<ParsedAccountData> | null>> {
+  ): Promise<RpcResponseAndContext<AccountInfo<Buffer | ParsedAccountData> | null>> {
     const options = resolveGetAccountInfoOptions(
       commitmentOrConfig,
       this.accountSyncCommitment
@@ -303,21 +291,11 @@ export class AccountSyncConnection extends Web3JsConnection {
     };
   }
 
-  /**
-   * Reads and parses several accounts from the local account-sync buffer.
-   *
-   * Results preserve input order and duplicate keys. A parse or context fetch
-   * failure rejects the entire read. Missing accounts return `null`.
-   *
-   * @param publicKeys Addresses of the accounts to read.
-   * @param rawConfig web3.js multiple-account read options.
-   * @returns Parsed account values and the lowest observation slot shared by the result.
-   * @throws {@link AccountSyncReadTimeoutError} when any required account read times out.
-   */
+  /** Returns parsed data, raw bytes, or null in input order with the lowest observation slot. */
   public override async getMultipleParsedAccounts(
     publicKeys: PublicKey[],
     rawConfig?: GetMultipleAccountsConfig
-  ): Promise<RpcResponseAndContext<(AccountInfo<ParsedAccountData> | null)[]>> {
+  ): Promise<RpcResponseAndContext<(AccountInfo<Buffer | ParsedAccountData> | null)[]>> {
     const options = resolveGetMultipleAccountsInfoOptions(
       rawConfig,
       this.accountSyncCommitment
@@ -526,11 +504,12 @@ export class AccountSyncConnection extends Web3JsConnection {
   private async toParsedAccountInfo(
     state: BufferedAccountState,
     options: ResolvedGetAccountInfoOptions
-  ): Promise<AccountInfo<ParsedAccountData>> {
+  ): Promise<AccountInfo<Buffer | ParsedAccountData>> {
     return parseConnectionAccount(
       bufferedAccountToEncodingInput(state),
       (contextPubkey) => this.getAccountInfo(contextPubkey, contextFetchConfig(options)),
-      this.accountParseContextCache
+      this.accountParseContextCache,
+      options.dataSlice
     );
   }
 }

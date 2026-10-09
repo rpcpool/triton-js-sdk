@@ -4,21 +4,17 @@ use {
     solana_account::Account,
     solana_account_decoder::{
         encode_ui_account,
-        parse_account_data::{
-            parse_account_data_v3, AccountAdditionalDataV3, ParseAccountError,
-            SplTokenAdditionalDataV2,
-        },
+        parse_account_data::{AccountAdditionalDataV3, SplTokenAdditionalDataV2},
+        parse_token::{get_token_account_mint, is_known_spl_token_id},
     },
-    solana_account_decoder_client_types::{
-        ParsedAccount, UiAccount, UiAccountData, UiAccountEncoding, UiDataSliceConfig,
-    },
+    solana_account_decoder_client_types::{UiAccountData, UiAccountEncoding, UiDataSliceConfig},
     solana_pubkey::Pubkey,
     spl_token_2022_interface::{
         extension::{
             interest_bearing_mint::InterestBearingConfig, scaled_ui_amount::ScaledUiAmountConfig,
             BaseStateWithExtensions, StateWithExtensions,
         },
-        state::{Account as TokenAccount, Mint},
+        state::Mint,
     },
     std::str::FromStr,
     wasm_bindgen::prelude::*,
@@ -75,20 +71,12 @@ struct WasmMintContext {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MissingContextDetails {
-    missing_accounts: Vec<String>,
-    context_kind: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct WasmErrorPayload {
     code: &'static str,
     message: String,
     pubkey: Option<String>,
     owner: Option<String>,
     encoding: Option<String>,
-    missing_context: Option<MissingContextDetails>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -117,13 +105,7 @@ enum AccountEncodingError {
     #[error("cannot convert from jsonParsed account data")]
     CannotConvertJsonParsed,
 
-    #[error("missing parse context for {context_kind}: {missing_account}")]
-    MissingParseContext {
-        missing_account: String,
-        context_kind: &'static str,
-    },
-
-    #[error("account parser failed: {0}")]
+    #[error("account encoding failed: {0}")]
     Parser(String),
 }
 
@@ -134,25 +116,15 @@ impl AccountEncodingError {
         owner: Option<String>,
         encoding: Option<WasmUiAccountEncoding>,
     ) -> JsError {
-        let (code, missing_context) = match self {
+        let code = match self {
             AccountEncodingError::InvalidAccountInputJson(_)
             | AccountEncodingError::InvalidAccountContextJson(_)
             | AccountEncodingError::InvalidPubkey { .. }
             | AccountEncodingError::InvalidOwner { .. }
             | AccountEncodingError::InvalidAccountData(_)
             | AccountEncodingError::InvalidEncodedData { .. }
-            | AccountEncodingError::CannotConvertJsonParsed => ("INVALID_ACCOUNT_DATA", None),
-            AccountEncodingError::MissingParseContext {
-                missing_account,
-                context_kind,
-            } => (
-                "MISSING_PARSE_CONTEXT",
-                Some(MissingContextDetails {
-                    missing_accounts: vec![missing_account.clone()],
-                    context_kind: (*context_kind).to_string(),
-                }),
-            ),
-            AccountEncodingError::Parser(_) => ("WASM_PARSER_ERROR", None),
+            | AccountEncodingError::CannotConvertJsonParsed => "INVALID_ACCOUNT_DATA",
+            AccountEncodingError::Parser(_) => "WASM_PARSER_ERROR",
         };
 
         let payload = WasmErrorPayload {
@@ -161,7 +133,6 @@ impl AccountEncodingError {
             pubkey,
             owner,
             encoding: encoding.map(|encoding| encoding_name(encoding).to_string()),
-            missing_context,
         };
         JsError::new(
             &serde_json::to_string(&payload)
@@ -190,19 +161,14 @@ pub fn encode_account(
 }
 
 #[wasm_bindgen]
-pub fn parse_account_json(
-    account_json: &str,
-    context_json: Option<String>,
-) -> Result<String, JsError> {
-    let input = parse_account_input(account_json)
-        .map_err(|error| error.to_js_error(None, None, Some(WasmUiAccountEncoding::JsonParsed)))?;
-    parse_account_json_inner(&input, context_json).map_err(|error| {
-        error.to_js_error(
-            Some(input.pubkey.clone()),
-            Some(input.owner.clone()),
-            Some(WasmUiAccountEncoding::JsonParsed),
-        )
-    })
+pub fn get_account_mint(owner: &str, data: &str) -> Result<Option<String>, JsError> {
+    let owner = parse_owner(owner).map_err(|error| error.to_js_error(None, None, None))?;
+    if !is_known_spl_token_id(&owner) {
+        return Ok(None);
+    }
+    let data = decode_base64_data(data)
+        .map_err(|error| error.to_js_error(None, Some(owner.to_string()), None))?;
+    Ok(get_token_account_mint(&data).map(|mint| mint.to_string()))
 }
 
 #[wasm_bindgen]
@@ -231,46 +197,25 @@ fn encode_account_inner(
         executable: input.executable,
         rent_epoch: input.rent_epoch,
     };
-    let encoded = if matches!(encoding, WasmUiAccountEncoding::JsonParsed) {
-        let parsed = parse_account(&pubkey, &owner, &account.data, context_json)?;
-        UiAccount {
-            lamports: account.lamports,
-            data: UiAccountData::Json(parsed),
-            owner: owner.to_string(),
-            executable: account.executable,
-            rent_epoch: account.rent_epoch,
-            space: Some(account.data.len() as u64),
-        }
-    } else {
-        let data_slice = parse_data_slice(data_slice_json)?;
-        encode_ui_account(&pubkey, &account, encoding.into(), None, data_slice)
+    let context = match encoding {
+        WasmUiAccountEncoding::JsonParsed => parse_account_context(context_json)?,
+        _ => None,
     };
+    let parsed_token = matches!(encoding, WasmUiAccountEncoding::JsonParsed)
+        && is_known_spl_token_id(&owner);
+    let additional_data = if parsed_token {
+        build_additional_data(&account.data, context.as_ref())?
+    } else {
+        None
+    };
+    let data_slice = if parsed_token {
+        None
+    } else {
+        parse_data_slice(data_slice_json)?
+    };
+    let encoded = encode_ui_account(&pubkey, &account, encoding.into(), additional_data, data_slice);
 
     serde_json::to_string(&encoded).map_err(|error| AccountEncodingError::Parser(error.to_string()))
-}
-
-fn parse_account_json_inner(
-    input: &WasmAccountInput,
-    context_json: Option<String>,
-) -> Result<String, AccountEncodingError> {
-    let pubkey = parse_pubkey(&input.pubkey)?;
-    let owner = parse_owner(&input.owner)?;
-    let data = decode_base64_data(&input.data)?;
-    let parsed = parse_account(&pubkey, &owner, &data, context_json)?;
-
-    serde_json::to_string(&parsed).map_err(|error| AccountEncodingError::Parser(error.to_string()))
-}
-
-fn parse_account(
-    pubkey: &Pubkey,
-    owner: &Pubkey,
-    data: &[u8],
-    context_json: Option<String>,
-) -> Result<ParsedAccount, AccountEncodingError> {
-    let context = parse_account_context(context_json)?;
-    let additional_data = build_additional_data(data, context.as_ref())?;
-    parse_account_data_v3(pubkey, owner, data, additional_data)
-        .map_err(|error| map_parse_error(error, data))
 }
 
 fn convert_account_data_inner(
@@ -367,7 +312,7 @@ fn decode_account_data(
             }
         }),
         WasmUiAccountEncoding::Base64Zstd => {
-            let encoded = solana_account_decoder_client_types::UiAccountData::Binary(
+            let encoded = UiAccountData::Binary(
                 input.to_string(),
                 UiAccountEncoding::Base64Zstd,
             );
@@ -404,10 +349,7 @@ fn encode_account_data(
                 None,
             );
             match encoded.data {
-                solana_account_decoder_client_types::UiAccountData::Binary(
-                    value,
-                    UiAccountEncoding::Base64Zstd,
-                ) => Ok(value),
+                UiAccountData::Binary(value, UiAccountEncoding::Base64Zstd) => Ok(value),
                 _ => Err(AccountEncodingError::Parser(
                     "base64+zstd compression failed".to_string(),
                 )),
@@ -421,82 +363,47 @@ fn build_additional_data(
     data: &[u8],
     context: Option<&WasmAccountContext>,
 ) -> Result<Option<AccountAdditionalDataV3>, AccountEncodingError> {
-    let Some(mint_pubkey) = spl_token_account_mint(data) else {
+    let Some(mint_pubkey) = get_token_account_mint(data) else {
         return Ok(None);
     };
 
-    let Some(context) = context else {
-        return Err(AccountEncodingError::MissingParseContext {
-            missing_account: mint_pubkey.to_string(),
-            context_kind: "splTokenMint",
-        });
-    };
-    let Some(mint_context) = &context.spl_token_mint else {
-        return Err(AccountEncodingError::MissingParseContext {
-            missing_account: mint_pubkey.to_string(),
-            context_kind: "splTokenMint",
-        });
+    let Some(mint_context) = context.and_then(|value| value.spl_token_mint.as_ref()) else {
+        return Ok(None);
     };
 
     if mint_context.pubkey != mint_pubkey.to_string() {
-        return Err(AccountEncodingError::MissingParseContext {
-            missing_account: mint_pubkey.to_string(),
-            context_kind: "splTokenMint",
-        });
+        return Ok(None);
     }
 
     let mint_data = decode_base64_data(&mint_context.data)?;
-    let spl_token_additional_data =
-        extract_spl_token_additional_data(&mint_data, context.unix_timestamp)?;
-
-    Ok(Some(AccountAdditionalDataV3 {
-        spl_token_additional_data: Some(spl_token_additional_data),
+    Ok(extract_spl_token_additional_data(
+        &mint_data,
+        context.and_then(|value| value.unix_timestamp),
+    )
+    .map(|data| AccountAdditionalDataV3 {
+        spl_token_additional_data: Some(data),
     }))
 }
 
 fn extract_spl_token_additional_data(
     mint_data: &[u8],
     unix_timestamp: Option<i64>,
-) -> Result<SplTokenAdditionalDataV2, AccountEncodingError> {
-    let mint = StateWithExtensions::<Mint>::unpack(mint_data).map_err(|error| {
-        AccountEncodingError::Parser(format!("failed to parse SPL token mint context: {error}"))
-    })?;
-    let interest_bearing_config = mint
-        .get_extension::<InterestBearingConfig>()
-        .ok()
-        .map(|config| (*config, unix_timestamp.unwrap_or_default()));
-    let scaled_ui_amount_config = mint
-        .get_extension::<ScaledUiAmountConfig>()
-        .ok()
-        .map(|config| (*config, unix_timestamp.unwrap_or_default()));
+) -> Option<SplTokenAdditionalDataV2> {
+    let mint = StateWithExtensions::<Mint>::unpack(mint_data).ok()?;
+    let interest_bearing_config = match mint.get_extension::<InterestBearingConfig>() {
+        Ok(config) => Some((*config, unix_timestamp?)),
+        Err(_) => None,
+    };
+    let scaled_ui_amount_config = match mint.get_extension::<ScaledUiAmountConfig>() {
+        Ok(config) => Some((*config, unix_timestamp?)),
+        Err(_) => None,
+    };
 
-    Ok(SplTokenAdditionalDataV2 {
+    Some(SplTokenAdditionalDataV2 {
         decimals: mint.base.decimals,
         interest_bearing_config,
         scaled_ui_amount_config,
     })
-}
-
-fn spl_token_account_mint(data: &[u8]) -> Option<Pubkey> {
-    StateWithExtensions::<TokenAccount>::unpack(data)
-        .ok()
-        .map(|account| account.base.mint)
-}
-
-fn map_parse_error(error: ParseAccountError, data: &[u8]) -> AccountEncodingError {
-    match error {
-        ParseAccountError::AdditionalDataMissing(_) => {
-            if let Some(mint_pubkey) = spl_token_account_mint(data) {
-                AccountEncodingError::MissingParseContext {
-                    missing_account: mint_pubkey.to_string(),
-                    context_kind: "splTokenMint",
-                }
-            } else {
-                AccountEncodingError::Parser(error.to_string())
-            }
-        }
-        other => AccountEncodingError::Parser(other.to_string()),
-    }
 }
 
 fn encoding_name(encoding: WasmUiAccountEncoding) -> &'static str {

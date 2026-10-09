@@ -144,7 +144,7 @@ export interface UiAccount<T = EncodedAccountData> {
   space?: number;
 }
 
-/** Raw account values accepted by {@link encodeAccount} and {@link parseJsonParsed}. */
+/** Raw account values accepted by {@link encodeAccount}. */
 export interface AccountEncodingInput {
   /** Address of the account being encoded. */
   pubkey: string | PublicKey;
@@ -214,7 +214,7 @@ export type AccountParseContextFetcher = (
   pubkey: PublicKey
 ) => Promise<AccountInfo<Buffer> | AccountParseContextAccount | null>;
 
-/** Options shared by {@link encodeAccount} and {@link parseJsonParsed}. */
+/** Options for {@link encodeAccount}. */
 export interface AccountEncodingOptions {
   /** Byte range to return for raw encodings. `space` still reports the full data size. */
   dataSlice?: DataSlice;
@@ -338,54 +338,17 @@ export declare class AccountParseContextCache {
 export declare function loadAccountEncodingWasm(): Promise<unknown>;
 /** @returns Whether this build supports `"base64+zstd"`. */
 export declare function isBase64ZstdEncodingSupported(): boolean;
-/**
- * Encodes raw account values in Solana RPC account form.
- *
- * Parsed output requires supplied context and rejects on parse failure.
- *
- * @param input Raw account values to encode.
- * @param encoding Requested account data encoding.
- * @param options Data slicing and parsed-account context options.
- * @returns A JSON-compatible account value in the requested encoding.
- * @throws {@link UnsupportedEncodingError} for an unsupported encoding or parser.
- * @throws {@link InvalidAccountDataError} for invalid account values.
- * @throws {@link MissingParseContextError} when required parse context is unavailable.
- * @throws {@link WasmParserError} when the bundled parser fails unexpectedly.
- *
- * @example
- * ```ts
- * const encoded = await encodeAccount(
- *   accountInfoToEncodingInput(address, accountInfo),
- *   "base64"
- * );
- * ```
- */
+/** Encodes account data; jsonParsed falls back to base64 when parsing is unavailable. */
 export declare function encodeAccount(
   input: AccountEncodingInput,
   encoding: "jsonParsed",
   options?: AccountEncodingOptions
-): Promise<UiAccount<ParsedAccountData>>;
+): Promise<UiAccount<ParsedAccountData | [string, "base64"]>>;
 export declare function encodeAccount(
   input: AccountEncodingInput,
   encoding: AccountDataEncoding,
   options?: AccountEncodingOptions
 ): Promise<UiAccount>;
-/**
- * Parses raw account values with Solana's program-aware parsers.
- *
- * Parsing runs once with the supplied context and rejects on failure.
- *
- * @param input Raw account values to parse.
- * @param options Supplied parser context. Data slicing does not apply to parsed output.
- * @returns Parsed account data.
- * @throws {@link InvalidAccountDataError} for invalid account values.
- * @throws {@link MissingParseContextError} when required parse context is unavailable.
- * @throws {@link WasmParserError} when the bundled parser fails unexpectedly.
- */
-export declare function parseJsonParsed(
-  input: AccountEncodingInput,
-  options?: AccountEncodingOptions
-): Promise<ParsedAccountData>;
 /**
  * Converts raw account data between binary encodings.
  *
@@ -430,16 +393,10 @@ export declare function accountInfoToEncodingInput(
 export declare function bufferedAccountToEncodingInput(
   state: BufferedAccountState
 ): AccountEncodingInput;
-/**
- * Converts a JSON-compatible account into the web3.js parsed account shape.
- *
- * @param account Account returned by {@link encodeAccount} using `"jsonParsed"`.
- * @returns Account information with a `PublicKey` owner and parsed data.
- * @throws {@link UnsupportedEncodingError} for an unsupported account data shape.
- */
+/** Converts JSON or base64 account data into the web3.js response shape. */
 export declare function toWeb3JsParsedAccountInfo(
   account: UiAccount
-): AccountInfo<ParsedAccountData>;
+): AccountInfo<Buffer | ParsedAccountData>;
 
 /**
  * A drop-in web3.js connection with locally buffered account reads for browsers.
@@ -555,36 +512,17 @@ export declare class AccountSyncConnection extends Web3JsConnection {
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
   ): Promise<RpcResponseAndContext<AccountInfo<Buffer> | null>>;
 
-  /**
-   * Reads and parses one account from the local account-sync buffer.
-   *
-   * Parse failures and unavailable context reject the read.
-   *
-   * @param publicKey Address of the account to read.
-   * @param commitmentOrConfig Commitment or web3.js account read options.
-   * @returns Parsed account information and its observation context, or `null`.
-   * @throws {@link AccountSyncReadTimeoutError} when a required read times out.
-   */
+  /** Returns parsed data or raw bytes with observation context, or null for a missing account. */
   getParsedAccountInfo(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
-  ): Promise<RpcResponseAndContext<AccountInfo<ParsedAccountData> | null>>;
+  ): Promise<RpcResponseAndContext<AccountInfo<Buffer | ParsedAccountData> | null>>;
 
-  /**
-   * Reads and parses several accounts from the local buffer.
-   *
-   * Results preserve input order and duplicates. Parse failures reject the read.
-   * Missing accounts return `null`. The context uses the lowest observation slot.
-   *
-   * @param publicKeys Addresses of the accounts to read.
-   * @param rawConfig web3.js multiple-account read options.
-   * @returns Parsed account values and their shared context.
-   * @throws {@link AccountSyncReadTimeoutError} when any required read times out.
-   */
+  /** Returns parsed data, raw bytes, or null in input order with the lowest observation slot. */
   getMultipleParsedAccounts(
     publicKeys: PublicKey[],
     rawConfig?: GetMultipleAccountsConfig
-  ): Promise<RpcResponseAndContext<(AccountInfo<ParsedAccountData> | null)[]>>;
+  ): Promise<RpcResponseAndContext<(AccountInfo<Buffer | ParsedAccountData> | null)[]>>;
 
   /**
    * Reads several accounts and a shared context from the local buffer.

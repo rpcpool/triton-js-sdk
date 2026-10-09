@@ -1,62 +1,58 @@
-import { PublicKey, type AccountInfo, type ParsedAccountData } from "@solana/web3.js";
+import { Buffer } from "buffer";
+import { PublicKey, SYSVAR_CLOCK_PUBKEY, type AccountInfo, type DataSlice, type ParsedAccountData } from "@solana/web3.js";
 import {
   AccountParseContextCache,
-  ContextFetchError,
-  MissingParseContextError,
+  InvalidAccountDataError,
   encodeAccount,
+  getAccountMint,
   toWeb3JsParsedAccountInfo,
   type AccountEncodingInput,
-  type AccountParseContextAccount,
+  type AccountParseContext,
   type AccountParseContextFetcher
 } from "../account_encoding";
 
-/** Parses an account, loading a missing mint through the connection once. */
+const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+
+/** Loads token context before asking the Solana decoder to encode the account. */
 export async function parseConnectionAccount(
   input: AccountEncodingInput,
   fetcher: AccountParseContextFetcher,
-  cache: AccountParseContextCache
-): Promise<AccountInfo<ParsedAccountData>> {
-  try {
-    return toWeb3JsParsedAccountInfo(await encodeAccount(input, "jsonParsed"));
-  } catch (error) {
-    if (!(error instanceof MissingParseContextError)) {
-      throw error;
-    }
-    const mint = error.missingAccounts[0];
-    if (!mint || error.contextKind !== "splTokenMint") {
-      throw error;
-    }
-    const account = await loadMint(mint, error, fetcher, cache);
-    return toWeb3JsParsedAccountInfo(await encodeAccount(input, "jsonParsed", {
-      parseContext: { splTokenMint: { pubkey: mint, data: account.data } }
-    }));
-  }
+  cache: AccountParseContextCache,
+  dataSlice?: DataSlice
+): Promise<AccountInfo<Buffer | ParsedAccountData>> {
+  const mint = await getAccountMint(input);
+  const parseContext = mint ? await loadContext(input, mint, fetcher, cache) : undefined;
+  return toWeb3JsParsedAccountInfo(await encodeAccount(input, "jsonParsed", {
+    parseContext,
+    dataSlice
+  }));
 }
 
-async function loadMint(
+async function loadContext(
+  input: AccountEncodingInput,
   mint: string,
-  error: MissingParseContextError,
   fetcher: AccountParseContextFetcher,
   cache: AccountParseContextCache
-): Promise<AccountParseContextAccount> {
-  const metadata = {
-    pubkey: error.pubkey,
-    owner: error.owner,
-    encoding: error.encoding,
-    missingAccount: mint,
-    contextKind: error.contextKind
+): Promise<AccountParseContext | undefined> {
+  const token2022 = input.owner.toString() === TOKEN_2022_PROGRAM;
+  const account = token2022
+    ? await fetcher(new PublicKey(mint))
+    : await cache.getOrLoad(mint, () => fetcher(new PublicKey(mint)));
+  if (!account) return undefined;
+  return {
+    splTokenMint: { pubkey: mint, data: account.data },
+    unixTimestamp: token2022 ? await loadClock(fetcher) : undefined
   };
-  let account: AccountParseContextAccount | null;
-  try {
-    account = await cache.getOrLoad(mint, () => fetcher(new PublicKey(mint)));
-  } catch (cause) {
-    throw new ContextFetchError(`failed to fetch parse context account ${mint}`, {
-      ...metadata,
-      cause
-    });
-  }
-  if (!account) {
-    throw new ContextFetchError(`parse context account ${mint} is unavailable`, metadata);
-  }
-  return account;
+}
+
+async function loadClock(fetcher: AccountParseContextFetcher): Promise<number> {
+  const clock = await fetcher(SYSVAR_CLOCK_PUBKEY);
+  if (!clock) throw new InvalidAccountDataError("Clock account is unavailable");
+  const data = typeof clock.data === "string"
+    ? Buffer.from(clock.data, "base64")
+    : Buffer.from(clock.data);
+  if (data.length !== 40) throw new InvalidAccountDataError("Invalid Clock account data");
+  const timestamp = Number(data.readBigInt64LE(32));
+  if (!Number.isSafeInteger(timestamp)) throw new InvalidAccountDataError("Clock timestamp exceeds the safe integer range");
+  return timestamp;
 }

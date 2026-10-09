@@ -13,7 +13,6 @@ export {
   encodeAccount,
   isBase64ZstdEncodingSupported,
   loadAccountEncodingWasm,
-  parseJsonParsed,
   toWeb3JsParsedAccountInfo
 } from "./account_encoding";
 export { AccountSyncTransports } from "./core/types";
