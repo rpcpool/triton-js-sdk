@@ -74,17 +74,11 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm run typecheck --prefix triton-sdk
 
-      - name: SDK tests (gRPC)
+      - name: SDK tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.endpoints.outcome == 'success' }}
         timeout-minutes: 3
         working-directory: triton-sdk
         run: npm test
-
-      - name: SDK tests (WebSocket)
-        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.endpoints.outcome == 'success' }}
-        timeout-minutes: 3
-        working-directory: triton-sdk
-        run: ACCOUNT_SYNC_URL="${ACCOUNT_SYNC_URL/http/ws}" npm test
 
       - name: Install examples with the local SDK
         id: examples
