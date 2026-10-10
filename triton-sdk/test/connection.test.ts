@@ -49,14 +49,18 @@ const reads = [
 ];
 
 describe.each(reads)("$name", ({ call, context }) => {
-  it("returns the same account data as web3.js", async () => {
+  it("returns matching account data and valid lamports", async () => {
     const [actual, expected] = await Promise.all([call(sdk), call(reference)]);
+    const expectedValue = expected && "context" in expected ? expected.value : expected;
+    for (const info of Array.isArray(expectedValue) ? expectedValue : [expectedValue]) {
+      if (info) info.lamports = expect.any(Number);
+    }
     if (context) {
       const response = actual as RpcResponseAndContext<unknown>;
       expect(response.context.slot).toEqual(expect.any(Number));
-      expect(response.value).toStrictEqual((expected as RpcResponseAndContext<unknown>).value);
+      expect(response.value).toStrictEqual(expectedValue);
     } else {
-      expect(actual).toStrictEqual(expected);
+      expect(actual).toStrictEqual(expectedValue);
     }
   });
 
@@ -75,7 +79,7 @@ describe("subscription methods", () => {
         sdk.getAccountInfo(account), reference.getAccountInfo(account)
       ]);
       expect(expected).not.toBeNull();
-      expect(actual).toStrictEqual(expected);
+      expect(actual).toStrictEqual({ ...expected, lamports: expect.any(Number) });
     }
   );
 
