@@ -450,38 +450,36 @@ mod tests {
     }
 
     #[test]
-    fn test_json_parsing_rejects_unsupported_and_malformed_accounts() {
+    fn test_json_parsing_falls_back_to_base64_for_unsupported_and_malformed_accounts() {
         for owner in [
             Pubkey::new_from_array([99; 32]).to_string(),
             "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA".to_string(),
         ] {
             let mut input = parse_account_input(&account_json(&[1])).unwrap();
             input.owner = owner;
-            for result in [
-                encode_account_inner(&input, WasmUiAccountEncoding::JsonParsed, None, None),
-                parse_account_json_inner(&input, None),
-            ] {
-                assert!(matches!(result, Err(AccountEncodingError::Parser(_))));
-            }
+            let encoded =
+                encode_account_inner(&input, WasmUiAccountEncoding::JsonParsed, None, None)
+                    .unwrap();
+            let encoded: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+
+            assert_eq!(encoded["data"], serde_json::json!(["AQ==", "base64"]));
+            assert_eq!(encoded["space"], 1);
         }
     }
 
     #[test]
-    fn test_json_parsing_requires_mint_context() {
+    fn test_json_parsing_falls_back_to_base64_without_mint_context() {
         let input = token_account_input();
-        for result in [
-            encode_account_inner(&input, WasmUiAccountEncoding::JsonParsed, None, None),
-            parse_account_json_inner(&input, None),
-        ] {
-            assert!(matches!(
-                result,
-                Err(AccountEncodingError::MissingParseContext { .. })
-            ));
-        }
+        let encoded =
+            encode_account_inner(&input, WasmUiAccountEncoding::JsonParsed, None, None).unwrap();
+        let encoded: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+
+        assert_eq!(encoded["data"], serde_json::json!([input.data, "base64"]));
+        assert_eq!(encoded["space"], 165);
     }
 
     #[test]
-    fn test_json_encoding_matches_parser_and_ignores_slice() {
+    fn test_json_encoding_parses_token_with_mint_context_and_ignores_slice() {
         let input = token_account_input();
         let mut mint = [0_u8; 82];
         mint[44] = 6;
@@ -500,13 +498,23 @@ mod tests {
             Some(r#"{"offset":0,"length":0}"#.to_string()),
         )
         .unwrap();
-        let parsed = parse_account_json_inner(&input, Some(context)).unwrap();
+        let unsliced = encode_account_inner(
+            &input,
+            WasmUiAccountEncoding::JsonParsed,
+            Some(context),
+            None,
+        )
+        .unwrap();
         let encoded: serde_json::Value = serde_json::from_str(&encoded).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&parsed).unwrap();
-        assert_eq!(encoded["data"], parsed);
+        let unsliced: serde_json::Value = serde_json::from_str(&unsliced).unwrap();
+
+        assert_eq!(encoded, unsliced);
         assert_eq!(encoded["space"], 165);
-        assert_eq!(parsed["program"], "spl-token");
-        assert_eq!(parsed["parsed"]["info"]["tokenAmount"]["decimals"], 6);
+        assert_eq!(encoded["data"]["program"], "spl-token");
+        assert_eq!(
+            encoded["data"]["parsed"]["info"]["tokenAmount"]["decimals"],
+            6
+        );
     }
 
     fn token_account_input() -> WasmAccountInput {
