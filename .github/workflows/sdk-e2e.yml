@@ -55,6 +55,10 @@ jobs:
           rustup show
           npm install -g ts-proto
           make setup-rust-wasm-dependencies
+      
+      - name: npm install
+        working-directory: triton-sdk
+        run: npm install
 
       - name: Build SDK and WASM
         id: build
