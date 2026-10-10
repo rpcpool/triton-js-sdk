@@ -60,7 +60,6 @@ jobs:
         id: build
         run: |
           make setup-submodules
-          npm ci --prefix triton-sdk
           npm run build --prefix triton-sdk
 
       - name: WASM crate tests
