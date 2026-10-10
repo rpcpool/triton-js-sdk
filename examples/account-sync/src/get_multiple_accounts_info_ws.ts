@@ -21,7 +21,7 @@ const DEFAULT_ACCOUNT = "ping6gwBZx1ccMMFyLgkVSupUmujYrFidEXuNRPq989";
 const DEFAULT_ACCOUNTS = `${DEFAULT_ACCOUNT},${DEFAULT_ACCOUNT}`;
 
 async function main(): Promise<void> {
-  const { rpcEndpoint, positional } = parseRpcEndpointArgs(
+  const { rpcEndpoint, subscriptionEndpoint, positional } = parseRpcEndpointArgs(
     process.argv.slice(2),
     DEFAULT_RPC_ENDPOINT,
     usage,
@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     throw new Error(`too many arguments\n${usage()}`);
   }
 
-  const wsEndpoint = deriveWebSocketEndpoint(rpcEndpoint);
+  const wsEndpoint = deriveWebSocketEndpoint(subscriptionEndpoint);
   const accounts = normalizeAccountsArg(positional[0] ?? DEFAULT_ACCOUNTS);
   const commitment = parseCommitment(positional[1]);
   const config: GetMultipleAccountsConfig = { commitment };

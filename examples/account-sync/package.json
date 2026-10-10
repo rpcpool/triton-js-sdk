@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "test:browser": "node scripts/browser-e2e.mjs",
     "example:ws": "tsx src/get_account_info_ws.ts",
     "example:grpc": "tsx src/get_account_info_grpc.ts",
     "example:grpc:parsed": "tsx src/get_parsed_account_info_grpc.ts",
@@ -22,6 +23,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.2",
+    "esbuild": "^0.28.1",
+    "playwright": "^1.58.2",
     "tsx": "^4.20.6",
     "typescript": "^6.0.2"
   }

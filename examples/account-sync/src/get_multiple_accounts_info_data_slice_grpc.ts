@@ -22,7 +22,7 @@ const DEFAULT_ACCOUNTS = `${DEFAULT_ACCOUNT},${DEFAULT_ACCOUNT}`;
 const DEFAULT_DATA_SLICE = "0:32";
 
 async function main(): Promise<void> {
-  const { rpcEndpoint, positional } = parseRpcEndpointArgs(
+  const { rpcEndpoint, subscriptionEndpoint, positional } = parseRpcEndpointArgs(
     process.argv.slice(2),
     DEFAULT_RPC_ENDPOINT,
     usage,
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   const connection = new Connection(rpcEndpoint, {
     accountSync: {
       transport: AccountSyncTransports.GRPC,
-      subscriptionEndpoint: rpcEndpoint,
+      subscriptionEndpoint,
       commitment,
       initialAccounts: publicKeys,
       ...ACCOUNT_SYNC_LIMITS,

@@ -19,7 +19,7 @@ const DEFAULT_RPC_ENDPOINT = "https://example.com/yourToken";
 const DEFAULT_ACCOUNT = "ping6gwBZx1ccMMFyLgkVSupUmujYrFidEXuNRPq989";
 
 async function main(): Promise<void> {
-  const { rpcEndpoint, positional } = parseRpcEndpointArgs(
+  const { rpcEndpoint, subscriptionEndpoint, positional } = parseRpcEndpointArgs(
     process.argv.slice(2),
     DEFAULT_RPC_ENDPOINT,
     usage,
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   const connection = new Connection(rpcEndpoint, {
     accountSync: {
       transport: AccountSyncTransports.GRPC,
-      subscriptionEndpoint: rpcEndpoint,
+      subscriptionEndpoint,
       commitment,
       initialAccounts: [],
       ...ACCOUNT_SYNC_LIMITS,

@@ -20,7 +20,7 @@ const DEFAULT_RPC_ENDPOINT = "https://example.com/yourToken";
 const DEFAULT_ACCOUNT = "ping6gwBZx1ccMMFyLgkVSupUmujYrFidEXuNRPq989";
 
 async function main(): Promise<void> {
-  const { rpcEndpoint, positional } = parseRpcEndpointArgs(
+  const { rpcEndpoint, subscriptionEndpoint, positional } = parseRpcEndpointArgs(
     process.argv.slice(2),
     DEFAULT_RPC_ENDPOINT,
     usage,
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     throw new Error(`too many arguments\n${usage()}`);
   }
 
-  const wsEndpoint = deriveWebSocketEndpoint(rpcEndpoint);
+  const wsEndpoint = deriveWebSocketEndpoint(subscriptionEndpoint);
   const account = normalizeAccountArg(positional[0] ?? DEFAULT_ACCOUNT);
   const commitment = parseCommitment(positional[1]);
   const config: GetAccountInfoConfig = { commitment };

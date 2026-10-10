@@ -7,28 +7,42 @@
   </head>
   <body>
     <h1>Live account data</h1>
-    <p>Set RPC_ENDPOINT in this file to your account-sync endpoint, then reload.</p>
+    <p>Set RPC_ENDPOINT and ACCOUNT_SYNC_ENDPOINT in this file, then reload.</p>
     <pre id="output">Waiting for account data...</pre>
     <script type="module">
-      import { Connection, PublicKey } from "https://esm.sh/@triton-one/triton-sdk@0.1.0?bundle&conditions=browser";
-
-      const RPC_ENDPOINT = "https://example.com/yourToken";
+      const settings = window.TRITON_EXAMPLE ?? {};
+      const moduleUrl = settings.moduleUrl ?? "https://esm.sh/@triton-one/triton-sdk@0.1.0?bundle&conditions=browser";
+      const { Connection, PublicKey } = await import(moduleUrl);
+      const RPC_ENDPOINT = settings.rpcUrl ?? "https://example.com/yourToken";
+      const ACCOUNT_SYNC_ENDPOINT = settings.accountSyncUrl ?? RPC_ENDPOINT;
+      const subscriptionEndpoint = new URL(ACCOUNT_SYNC_ENDPOINT);
+      subscriptionEndpoint.protocol = subscriptionEndpoint.protocol === "https:" ? "wss:" : "ws:";
       const ACCOUNT = "ping6gwBZx1ccMMFyLgkVSupUmujYrFidEXuNRPq989";
       const account = new PublicKey(ACCOUNT);
       const connection = new Connection(RPC_ENDPOINT, {
         accountSync: {
           transport: "ws",
+          subscriptionEndpoint: subscriptionEndpoint.toString(),
           commitment: "confirmed",
           initialAccounts: [account],
         },
       });
       const output = document.getElementById("output");
 
-      while (true) {
-        const response = await connection.getAccountInfoAndContext(account);
-        output.textContent = JSON.stringify(response, null, 2);
-        await new Promise((resolve) => setTimeout(resolve, 500));
+      try {
+        do {
+          const response = await connection.getAccountInfoAndContext(account);
+          if (settings.once && response.value === null) {
+            throw new Error("browser example returned no account");
+          }
+          output.textContent = JSON.stringify(response, null, 2);
+          if (settings.once) break;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        } while (true);
+      } finally {
+        await connection.close();
       }
+      output.dataset.complete = "true";
     </script>
   </body>
 </html>
