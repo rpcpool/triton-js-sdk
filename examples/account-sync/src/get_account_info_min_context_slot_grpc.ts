@@ -30,7 +30,7 @@ interface JsonRpcResponse<T> {
 }
 
 async function main(): Promise<void> {
-  const { rpcEndpoint, positional } = parseRpcEndpointArgs(
+  const { rpcEndpoint, subscriptionEndpoint, positional } = parseRpcEndpointArgs(
     process.argv.slice(2),
     DEFAULT_RPC_ENDPOINT,
     usage,
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   const connection = new Connection(rpcEndpoint, {
     accountSync: {
       transport: AccountSyncTransports.GRPC,
-      subscriptionEndpoint: rpcEndpoint,
+      subscriptionEndpoint,
       commitment,
       initialAccounts: [publicKey],
       ...ACCOUNT_SYNC_LIMITS,

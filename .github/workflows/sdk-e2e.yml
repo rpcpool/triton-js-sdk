@@ -1,0 +1,174 @@
+name: SDK end-to-end tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdk-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RPC_URL: ${{ secrets.RPC_URL }}
+      ACCOUNT_SYNC_URL: ${{ secrets.ACCOUNT_SYNC_URL }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            triton-sdk/package-lock.json
+            examples/account-sync/package-lock.json
+
+      - name: Check endpoint secrets
+        id: endpoints
+        if: >-
+          github.actor != 'dependabot[bot]' &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          for name in RPC_URL ACCOUNT_SYNC_URL; do
+            case "${!name}" in
+              http://*|https://*) ;;
+              *) echo "$name must be set to an HTTP(S) URL" >&2; exit 1 ;;
+            esac
+          done
+          echo "::add-mask::${ACCOUNT_SYNC_URL/http/ws}"
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes protobuf-compiler clang
+          rustup show
+          npm install -g ts-proto
+          make setup-rust-wasm-dependencies
+      
+      - name: npm install
+        working-directory: triton-sdk
+        run: npm install
+
+      - name: Build SDK and WASM
+        id: build
+        run: |
+          make setup-submodules
+          npm run build --prefix triton-sdk
+
+      - name: WASM crate tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: cargo test --locked --manifest-path triton-sdk/account-encoding-wasm/Cargo.toml
+
+      - name: SDK type check
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: npm run typecheck --prefix triton-sdk
+
+      - name: SDK tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 3
+        working-directory: triton-sdk
+        run: npm test
+
+      - name: Install examples with the local SDK
+        id: examples
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        working-directory: examples/account-sync
+        run: |
+          npm ci
+          sdk_package=$(npm pack ../../triton-sdk --pack-destination "$RUNNER_TEMP" --silent)
+          npm install --no-save --package-lock=false "$RUNNER_TEMP/$sdk_package"
+
+      - name: Example type check
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' }}
+        run: npm run typecheck --prefix examples/account-sync
+
+      - name: Example - single account (WebSocket)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_account_info_ws.ts
+
+      - name: Example - multiple accounts (WebSocket)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_multiple_accounts_info_ws.ts
+
+      - name: Example - single account (gRPC)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_account_info_grpc.ts
+
+      - name: Example - multiple accounts (gRPC)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_multiple_accounts_info_grpc.ts
+
+      - name: Example - parsed account (gRPC)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_parsed_account_info_grpc.ts
+
+      - name: Example - multiple parsed accounts (gRPC)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_multiple_parsed_accounts_grpc.ts
+
+      - name: Example - account data slice (gRPC)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_account_info_data_slice_grpc.ts
+
+      - name: Example - multiple account data slices (gRPC)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_multiple_accounts_info_data_slice_grpc.ts
+
+      - name: Example - account minimum context slot (gRPC)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_account_info_min_context_slot_grpc.ts
+
+      - name: Example - multiple accounts minimum context slot (gRPC)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/get_multiple_accounts_info_min_context_slot_grpc.ts
+
+      - name: Example - account lifecycle (gRPC)
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/account_lifecycle_grpc.ts
+
+      - name: Example - compare SDK and RPC results
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 2
+        working-directory: examples/account-sync
+        run: npx tsx src/compare_get_multiple_accounts_info_latency.ts --once
+
+      - name: Browser example
+        if: ${{ !cancelled() && steps.examples.outcome == 'success' && steps.endpoints.outcome == 'success' }}
+        timeout-minutes: 5
+        working-directory: examples/account-sync
+        run: |
+          npx playwright install --with-deps chromium
+          timeout --kill-after=5s 90s npm run test:browser

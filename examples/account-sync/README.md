@@ -22,7 +22,7 @@ The SDK is a web3.js-compatible `Connection` with streaming-backed account reads
 From this directory:
 
 ```bash
-cd examples/clients/typescript
+cd examples/account-sync
 npm install
 ```
 
@@ -45,9 +45,7 @@ All examples accept one endpoint flag:
 --rpc-endpoint <rpc_endpoint>
 ```
 
-The endpoint is used for both Solana JSON-RPC and account-sync streaming. gRPC
-examples use it directly. WebSocket examples replace `http` with `ws` and
-`https` with `wss`.
+Set `RPC_URL` for Solana JSON-RPC and `ACCOUNT_SYNC_URL` for account-sync streaming. `--rpc-endpoint` overrides `RPC_URL`. If `ACCOUNT_SYNC_URL` is absent, examples use the RPC endpoint for both services. WebSocket examples replace `http` with `ws` and `https` with `wss` on the streaming URL. The path and query stay the same.
 
 Commitment values:
 
@@ -87,7 +85,7 @@ use WebSocket. The gRPC examples use the Node-only `grpc-js` transport.
 | `npm run example:grpc:min-context-slot` | `getAccountInfoAndContext` with `minContextSlot` | gRPC |
 | `npm run example:multiple:grpc:min-context-slot` | `getMultipleAccountsInfoAndContext` with `minContextSlot` | gRPC |
 | `npm run example:grpc:lifecycle` | add, remove, and re-add an account | gRPC |
-| `npm run example:compare:get-account-info` | Triton SDK and web3.js `getMultipleAccountsInfo` timing for 100 accounts | gRPC and JSON-RPC |
+| `npm run example:compare:get-multiple-accounts-info` | Triton SDK and web3.js `getMultipleAccountsInfo` timing for 100 accounts | gRPC and JSON-RPC |
 
 ## Compare `getMultipleAccountsInfo` Response Times
 
@@ -98,7 +96,7 @@ one row when both results match and that full result has not been printed
 before. Each duration covers the full 100-account request.
 
 ```bash
-npm run example:compare:get-account-info -- \
+npm run example:compare:get-multiple-accounts-info -- \
   --rpc-endpoint https://example.com/<TOKEN> \
   confirmed \
   250
@@ -106,6 +104,8 @@ npm run example:compare:get-account-info -- \
 
 Arguments after the endpoint are `commitment` and `poll_interval_ms`. Stop the
 example with `Ctrl+C`.
+
+Add `--once` to stop after the first matching batch. This mode fails on a read error or interruption before a match. CI runs each command-line example in its own step with `npx tsx` and a two-minute limit. It uses `--once` for the comparison. A timeout fails the step.
 
 For each unique matching 100-account result, the output shows:
 
@@ -121,7 +121,6 @@ results across different rounds. Because `getMultipleAccountsInfo` does not
 return write slots, identical full results at a later slot are not printed
 again. Call duration measures the full batch response time. It is not full
 validator-to-client latency.
-
 ## Behavior Shown by the Examples
 
 - Each account-read step makes one SDK call. It does not poll in a retry loop.

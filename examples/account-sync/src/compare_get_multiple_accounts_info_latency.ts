@@ -41,9 +41,13 @@ interface FailedRead {
   error: unknown;
 }
 
+type BatchRead = { source: Source; read: TimedBatchRead } | FailedRead;
+
 async function main(): Promise<void> {
-  const { rpcEndpoint, positional } = parseRpcEndpointArgs(
-    process.argv.slice(2),
+  const args = process.argv.slice(2);
+  const once = args.includes("--once");
+  const { rpcEndpoint, subscriptionEndpoint, positional } = parseRpcEndpointArgs(
+    args.filter((arg) => arg !== "--once"),
     DEFAULT_RPC_ENDPOINT,
     usage,
   );
@@ -58,7 +62,7 @@ async function main(): Promise<void> {
     commitment,
     accountSync: {
       transport: AccountSyncTransports.GRPC,
-      // subscriptionEndpoint: rpcEndpoint,
+      subscriptionEndpoint,
       commitment,
       initialAccounts: publicKeys,
       ...ACCOUNT_SYNC_LIMITS,
@@ -93,36 +97,42 @@ async function main(): Promise<void> {
         ),
       ]);
 
-      if ("error" in tritonRead) {
-        reportReadError(tritonRead, lastErrorBySource);
-      } else {
-        lastErrorBySource.delete("triton");
-      }
-      if ("error" in web3Read) {``
-        reportReadError(web3Read, lastErrorBySource);
-      } else {
-        lastErrorBySource.delete("web3");
-      }
-
-      if (
-        !("error" in tritonRead) &&
-        !("error" in web3Read) &&
-        tritonRead.read.hash === web3Read.read.hash &&
-        !printedStates.has(tritonRead.read.hash)
-      ) {
+      const matched = matchingBatch(tritonRead, web3Read, lastErrorBySource, once);
+      if (matched && !printedStates.has(matched[0].hash)) {
         updateNumber += 1;
-        printMatchedState(updateNumber, tritonRead.read, web3Read.read);
-        rememberPrintedState(printedStates, tritonRead.read.hash);
+        printMatchedState(updateNumber, ...matched);
+        rememberPrintedState(printedStates, matched[0].hash);
+        if (once) return;
       }
 
       const cycleDurationMs = performance.now() - cycleStartedAtMs;
       await sleep(Math.max(0, pollIntervalMs - cycleDurationMs));
     }
+    if (once) throw new Error("comparison stopped before a matching result");
   } finally {
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
     await tritonConnection.close();
   }
+}
+
+export function matchingBatch(
+  triton: BatchRead,
+  web3: BatchRead,
+  lastErrors: Map<Source, string>,
+  failOnError: boolean,
+): [TimedBatchRead, TimedBatchRead] | undefined {
+  for (const result of [triton, web3]) {
+    if ("error" in result) {
+      if (failOnError) throw result.error;
+      reportReadError(result, lastErrors);
+    } else {
+      lastErrors.delete(result.source);
+    }
+  }
+  if ("error" in triton || "error" in web3) return;
+  if (triton.read.hash !== web3.read.hash) return;
+  return [triton.read, web3.read];
 }
 
 async function loadPublicKeys(
@@ -288,8 +298,10 @@ function sleep(ms: number): Promise<void> {
 function usage(): string {
   return [
     "Usage:",
-    "  npm run example:compare:get-account-info -- [--rpc-endpoint <rpc_endpoint>] [commitment] [poll_interval_ms]",
+    "  npm run example:compare:get-multiple-accounts-info -- [--once] [--rpc-endpoint <rpc_endpoint>] [commitment] [poll_interval_ms]",
   ].join("\n");
 }
 
-void main().catch(reportExampleError);
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  void main().catch(reportExampleError);
+}

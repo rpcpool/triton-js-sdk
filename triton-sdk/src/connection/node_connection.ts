@@ -258,22 +258,21 @@ export class AccountSyncConnection extends Web3JsConnection {
   }
 
   /**
-   * Reads and parses one account from the local account-sync buffer.
+   * Fetch parsed account info for the specified public key.
    *
-   * The parser may read supporting accounts, such as an SPL token mint, through
-   * this connection. Parse failures and unavailable context reject the read.
+   * Reads from the account-sync buffer. Data is parsed JSON when supported and a
+   * Buffer otherwise. Token parsing can read the mint and Clock accounts.
    *
-   * @param publicKey Address of the account to read.
-   * @param commitmentOrConfig Commitment or web3.js account read options.
-   * @returns Parsed account information and its observation context, or `null`
-   * when the account does not exist.
-   * @throws {@link AccountSyncReadTimeoutError} when a required buffered read
-   * cannot be satisfied before `missTimeoutMs`.
+   * @param publicKey Public key of the account to fetch.
+   * @param commitmentOrConfig Optional commitment or account read options, including minContextSlot and dataSlice.
+   * @returns The account and its observation context, with value set to null when the account does not exist.
+   * @throws AccountSyncReadTimeoutError when a required buffered read times out.
+   * @throws Error when options are invalid, the connection is closed, a required fetch fails, or WASM cannot run.
    */
   public override async getParsedAccountInfo(
     publicKey: PublicKey,
     commitmentOrConfig?: Commitment | GetAccountInfoConfig
-  ): Promise<RpcResponseAndContext<AccountInfo<ParsedAccountData> | null>> {
+  ): Promise<RpcResponseAndContext<AccountInfo<Buffer | ParsedAccountData> | null>> {
     const options = resolveGetAccountInfoOptions(
       commitmentOrConfig,
       this.accountSyncCommitment
@@ -323,20 +322,22 @@ export class AccountSyncConnection extends Web3JsConnection {
   }
 
   /**
-   * Reads and parses several accounts from the local account-sync buffer.
+   * Fetch parsed account info for the specified public keys.
    *
-   * Results preserve input order and duplicate keys. A parse or context fetch
-   * failure rejects the entire read. Missing accounts return `null`.
+   * Preserves input order and duplicate keys. Each value contains parsed JSON,
+   * raw bytes as a Buffer, or null for a missing account. The context slot is the
+   * lowest observation slot across the requested accounts.
    *
-   * @param publicKeys Addresses of the accounts to read.
-   * @param rawConfig web3.js multiple-account read options.
-   * @returns Parsed account values and the lowest observation slot shared by the result.
-   * @throws {@link AccountSyncReadTimeoutError} when any required account read times out.
+   * @param publicKeys Public keys of the accounts to fetch.
+   * @param rawConfig Optional commitment, minimum context slot, and data slice.
+   * @returns Account values and their shared observation context.
+   * @throws AccountSyncReadTimeoutError when any required buffered read times out.
+   * @throws Error when options are invalid, the connection is closed, a required fetch fails, or WASM cannot run.
    */
   public override async getMultipleParsedAccounts(
     publicKeys: PublicKey[],
     rawConfig?: GetMultipleAccountsConfig
-  ): Promise<RpcResponseAndContext<(AccountInfo<ParsedAccountData> | null)[]>> {
+  ): Promise<RpcResponseAndContext<(AccountInfo<Buffer | ParsedAccountData> | null)[]>> {
     const options = resolveGetMultipleAccountsInfoOptions(
       rawConfig,
       this.accountSyncCommitment
@@ -545,11 +546,12 @@ export class AccountSyncConnection extends Web3JsConnection {
   private async toParsedAccountInfo(
     state: BufferedAccountState,
     options: ResolvedGetAccountInfoOptions
-  ): Promise<AccountInfo<ParsedAccountData>> {
+  ): Promise<AccountInfo<Buffer | ParsedAccountData>> {
     return parseConnectionAccount(
       bufferedAccountToEncodingInput(state),
       (contextPubkey) => this.getAccountInfo(contextPubkey, contextFetchConfig(options)),
-      this.accountParseContextCache
+      this.accountParseContextCache,
+      options.dataSlice
     );
   }
 }
@@ -575,7 +577,17 @@ function contextFetchConfig(
   };
 }
 
-/** A native web3.js connection unless accountSync options are supplied. */
+/**
+ * Create a Solana connection with optional account-sync reads.
+ *
+ * Supplying accountSync selects AccountSyncConnection. Omitting it uses the
+ * native web3.js Connection with the supplied commitment and connection options.
+ *
+ * @param endpoint URL of the Solana JSON RPC endpoint.
+ * @param config Optional default commitment or connection options.
+ * @returns The connection selected by the accountSync settings.
+ * @throws Error when the endpoint or connection settings are invalid.
+ */
 export const Connection = createConnectionConstructor<
   NodeAccountSyncConnectionConfig,
   AccountSyncConnection

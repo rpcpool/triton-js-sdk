@@ -2,11 +2,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    exclude: [
-      "test/sdk_live_integration.test.ts",
-      "test/web3_response_compat.test.ts",
-      "node_modules/**",
-      "dist/**"
-    ]
+    include: ["test/**/*.test.ts"],
+    fileParallelism: false,
+    bail: 1,
+    testTimeout: 5_000,
+    hookTimeout: 5_000
   }
 });

@@ -362,7 +362,7 @@ export function toWeb3JsAccountInfo(
     lamports: Number(state.lamports),
     data: sliceAccountData(state.data, dataSlice),
     rentEpoch: Number(state.rentEpoch),
-    // space: state.data.length
+    space: state.data.length
   } as AccountInfo<Buffer>;
 }
 

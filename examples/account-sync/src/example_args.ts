@@ -6,6 +6,7 @@ import {
 // Shared argument parsing for the example scripts.
 export interface RpcEndpointArgs {
   rpcEndpoint: string;
+  subscriptionEndpoint: string;
   positional: string[];
 }
 
@@ -13,6 +14,7 @@ export function parseRpcEndpointArgs(
   args: readonly string[],
   defaultRpcEndpoint: string,
   usage: () => string,
+  env: NodeJS.ProcessEnv = process.env,
 ): RpcEndpointArgs {
   const positional: string[] = [];
   let rpcEndpoint: string | undefined;
@@ -47,8 +49,20 @@ export function parseRpcEndpointArgs(
   }
 
   return {
-    rpcEndpoint: rpcEndpoint ?? defaultRpcEndpoint,
+    ...resolveEndpoints(rpcEndpoint, defaultRpcEndpoint, env),
     positional,
+  };
+}
+
+function resolveEndpoints(
+  rpcEndpoint: string | undefined,
+  fallback: string,
+  env: NodeJS.ProcessEnv,
+): Omit<RpcEndpointArgs, "positional"> {
+  const resolvedRpcEndpoint = rpcEndpoint ?? (env.RPC_URL?.trim() || fallback);
+  return {
+    rpcEndpoint: resolvedRpcEndpoint,
+    subscriptionEndpoint: env.ACCOUNT_SYNC_URL?.trim() || resolvedRpcEndpoint,
   };
 }
 
