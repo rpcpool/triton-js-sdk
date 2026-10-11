@@ -10,20 +10,20 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-base64 = "=0.22.1"
-bs58 = "=0.5.1"
-getrandom = { version = "=0.3.4", features = ["wasm_js"] }
-serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = "=1.0.145"
-solana-account = "=3.0.0"
-solana-account-decoder = "=3.0.0"
-solana-account-decoder-client-types = { version = "=3.0.0", features = ["zstd"] }
-solana-program-pack = "=3.0.0"
-solana-pubkey = { version = "=3.0.0", default-features = false }
-spl-token-2022-interface = "=2.0.0"
-thiserror = "=2.0.17"
-wasm-bindgen = "=0.2.100"
-zstd = { version = "=0.13.3", default-features = false, features = ["thin"] }
+base64 = "0.23.1"
+bs58 = "0.5.1"
+getrandom = { version = "0.4.3", features = ["wasm_js"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.152"
+solana-account = "4.7.0"
+solana-account-decoder = { version = "4.3.0", features = ["agave-unstable-api"] }
+solana-account-decoder-client-types = { version = "4.3.0", features = ["agave-unstable-api", "zstd"] }
+solana-program-pack = "3.1.0"
+solana-pubkey = { version = "4.4.0", default-features = false }
+spl-token-2022-interface = "3.1.2"
+thiserror = "2.0.21"
+wasm-bindgen = "0.2.129"
+zstd = { version = "0.14.2", default-features = false, features = ["thin"] }
 
 [profile.release]
 opt-level = "s"
