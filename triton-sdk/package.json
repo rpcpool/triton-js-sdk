@@ -28,7 +28,7 @@
   "scripts": {
     "generate:proto": "mkdir -p src/generated/grpc && protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=bigint --ts_proto_opt=outputServices=none --ts_proto_opt=esModuleInterop=true --experimental_allow_proto3_optional --ts_proto_out=src/generated/grpc -I ../triton-rust-sdk/yellowstone-account-sync-proto/proto -I ../triton-rust-sdk/yellowstone-account-sync-proto/proto/yellowstone-grpc/yellowstone-grpc-proto/proto geyser.proto solana-storage.proto && protoc --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_opt=forceLong=bigint --ts_proto_opt=outputServices=grpc-js --ts_proto_opt=emitImportedFiles=false --ts_proto_opt=esModuleInterop=true --experimental_allow_proto3_optional --ts_proto_out=src/generated/grpc -I ../triton-rust-sdk/yellowstone-account-sync-proto/proto -I ../triton-rust-sdk/yellowstone-account-sync-proto/proto/yellowstone-grpc/yellowstone-grpc-proto/proto account_sync.proto",
     "build": "npm run generate:proto && npm run build:wasm && tsup && npm run copy:wasm",
-    "build:wasm": "cargo build --manifest-path account-encoding-wasm/Cargo.toml --target wasm32-unknown-unknown --release && wasm-bindgen --target web --out-dir src/wasm/account_encoding account-encoding-wasm/target/wasm32-unknown-unknown/release/yellowstone_account_sync_account_encoding_wasm.wasm",
+    "build:wasm": "cargo build --manifest-path account-encoding-wasm/Cargo.toml --target wasm32-unknown-unknown --release && wasm-bindgen --target web --out-dir src/wasm/account_encoding account-encoding-wasm/target/wasm32-unknown-unknown/release/yellowstone_account_sync_account_encoding_wasm.wasm && node scripts/optimize-wasm.mjs",
     "copy:wasm": "mkdir -p dist/wasm/account_encoding && cp src/wasm/account_encoding/yellowstone_account_sync_account_encoding_wasm_bg.wasm dist/wasm/account_encoding/",
     "typecheck": "npm run generate:proto && tsc --noEmit",
     "test": "npm run generate:proto && node ./node_modules/vitest/vitest.mjs run"
@@ -44,6 +44,7 @@
   "devDependencies": {
     "@types/node": "^25.5.0",
     "@types/ws": "^8.18.1",
+    "binaryen": "132.0.0",
     "ts-proto": "^2.8.3",
     "tsup": "^8.5.0",
     "typescript": "^6.0.2",
