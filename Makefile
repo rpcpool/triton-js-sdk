@@ -25,4 +25,4 @@ clean-rust:
 
 setup-rust-wasm-dependencies:
 	rustup target add wasm32-unknown-unknown
-	cargo install wasm-bindgen-cli --version 0.2.100
+	cargo install wasm-bindgen-cli --version 0.2.129
