@@ -2,7 +2,6 @@
   "name": "yellowstone-account-sync-typescript-examples",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit",
     "test:browser": "node scripts/browser-e2e.mjs",
     "example:ws": "tsx src/get_account_info_ws.ts",
     "example:grpc": "tsx src/get_account_info_grpc.ts",
