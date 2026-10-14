@@ -16,8 +16,7 @@ clean: clean-nodejs clean-rust
 clean-nodejs:
 	rm -rf triton-sdk/dist
 	rm -rf triton-sdk/node_modules
-	rm -rf examples/clients/typescript/dist
-	rm -rf examples/clients/typescript/node_modules
+	rm -rf examples/account-sync/node_modules
 
 clean-rust:
 	rm -rf target
