@@ -11,8 +11,8 @@ import type {
   GrpcTransportOptions
 } from "../core/types";
 import { YellowstoneAccountSyncGrpcServiceClient } from "../generated/grpc/account_sync";
-import type { SubscribeRequest, SubscribeUpdate } from "../generated/grpc/geyser";
-import { setsEqual } from "./common";
+import { SubscribeRequest, type SubscribeUpdate } from "../generated/grpc/geyser";
+import { DEFAULT_PING_INTERVAL_MS, setsEqual } from "./common";
 import {
   createSubscribeRequest,
   subscribeUpdateToAccountUpdate
@@ -20,7 +20,6 @@ import {
 
 const DEFAULT_FLOW_CONTROL_WINDOW_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_RECEIVE_MESSAGE_LENGTH_BYTES = 16 * 1024 * 1024;
-const DEFAULT_KEEP_ALIVE_INTERVAL_MS = 30_000;
 const DEFAULT_KEEP_ALIVE_TIMEOUT_MS = 10_000;
 
 interface ResolvedGrpcTransportOptions {
@@ -50,6 +49,7 @@ export class GrpcAccountSubscriptionTransport implements AccountSubscriptionTran
   private closed = false;
   private intentionallyClosing = false;
   private lifecycleSignal: AbortSignal | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(endpoint: string, options: GrpcTransportOptions = {}) {
     if (typeof window !== "undefined") {
@@ -123,6 +123,7 @@ export class GrpcAccountSubscriptionTransport implements AccountSubscriptionTran
 
     this.closed = true;
     this.intentionallyClosing = true;
+    this.stopPing();
     this.pendingWriteAbortController?.abort();
     this.pendingWriteAbortController = null;
 
@@ -203,6 +204,30 @@ export class GrpcAccountSubscriptionTransport implements AccountSubscriptionTran
     stream.on("close", () => {
       this.handleStreamFailure(stream, generation, new Error("grpc stream closed"));
     });
+    this.startPing(stream);
+  }
+
+  private startPing(
+    stream: ClientDuplexStream<SubscribeRequest, SubscribeUpdate>
+  ): void {
+    this.stopPing();
+    this.pingTimer = setInterval(() => this.sendPing(stream), DEFAULT_PING_INTERVAL_MS);
+  }
+
+  private stopPing(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  // Write order is kept by the stream. The stream listeners report write failures.
+  private sendPing(
+    stream: ClientDuplexStream<SubscribeRequest, SubscribeUpdate>
+  ): void {
+    if (this.stream === stream) {
+      stream.write(SubscribeRequest.create({ ping: { id: 1 } }));
+    }
   }
 
   private handleStreamFailure(
@@ -219,6 +244,7 @@ export class GrpcAccountSubscriptionTransport implements AccountSubscriptionTran
       return;
     }
 
+    this.stopPing();
     this.stream = null;
     this.streamGeneration += 1;
     this.appliedAccountIds.clear();
@@ -336,7 +362,7 @@ function resolveGrpcTransportOptions(
     ),
     keepAliveIntervalMs: positiveInteger(
       options.keepAliveIntervalMs,
-      DEFAULT_KEEP_ALIVE_INTERVAL_MS,
+      DEFAULT_PING_INTERVAL_MS,
       "keepAliveIntervalMs"
     ),
     keepAliveTimeoutMs: positiveInteger(

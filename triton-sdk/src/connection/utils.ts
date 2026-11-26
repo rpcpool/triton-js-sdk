@@ -15,6 +15,7 @@ import type {
   BufferedAccountState,
   ResolvedGetAccountInfoOptions
 } from "../core/types";
+import { DEFAULT_PING_INTERVAL_MS } from "../transport/common";
 
 const DEFAULT_MISS_TIMEOUT_MS = 5_000;
 const DEFAULT_RPC_POLL_INTERVAL_MS = 1_000;
@@ -25,7 +26,6 @@ const DEFAULT_CLOSE_TIMEOUT_MS = 5_000;
 const DEFAULT_DYNAMIC_SUBSCRIPTION_TTL_MS = 60_000;
 const DEFAULT_GRPC_FLOW_CONTROL_WINDOW_BYTES = 16 * 1024 * 1024;
 const DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_LENGTH_BYTES = 16 * 1024 * 1024;
-const DEFAULT_GRPC_KEEP_ALIVE_INTERVAL_MS = 30_000;
 const DEFAULT_GRPC_KEEP_ALIVE_TIMEOUT_MS = 10_000;
 
 interface CommitmentAndConfig<TConfig extends ConnectionConfig> {
@@ -220,7 +220,7 @@ export function resolveAccountSyncSettings<TTransport extends AccountSyncTranspo
       ),
       keepAliveIntervalMs: normalizePositiveSafeInteger(
         options?.grpc?.keepAliveIntervalMs,
-        DEFAULT_GRPC_KEEP_ALIVE_INTERVAL_MS,
+        DEFAULT_PING_INTERVAL_MS,
         "accountSync.grpc.keepAliveIntervalMs"
       ),
       keepAliveTimeoutMs: normalizePositiveSafeInteger(
