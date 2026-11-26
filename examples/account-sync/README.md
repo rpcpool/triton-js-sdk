@@ -155,7 +155,7 @@ The gRPC examples also use:
 | --- | --- |
 | `flowControlWindowBytes` | `16777216` |
 | `maxReceiveMessageLengthBytes` | `16777216` |
-| `keepAliveIntervalMs` | `30000` |
+| `keepAliveIntervalMs` | `10000` |
 | `keepAliveTimeoutMs` | `10000` |
 | `keepAlivePermitWithoutCalls` | `true` |
 

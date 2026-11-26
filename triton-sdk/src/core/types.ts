@@ -25,7 +25,7 @@ export interface GrpcTransportOptions {
   flowControlWindowBytes?: number;
   /** Largest gRPC message the client will accept, in bytes. Defaults to 16 MiB. */
   maxReceiveMessageLengthBytes?: number;
-  /** Time between gRPC keepalive pings, in milliseconds. Defaults to 30 seconds. */
+  /** Time between gRPC keepalive pings, in milliseconds. Defaults to 10 seconds. */
   keepAliveIntervalMs?: number;
   /** Time to wait for a keepalive response, in milliseconds. Defaults to 10 seconds. */
   keepAliveTimeoutMs?: number;

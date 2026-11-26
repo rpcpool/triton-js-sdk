@@ -1,3 +1,6 @@
+// Ping interval for open streams. HAProxy cuts a quiet gRPC stream after 25s.
+export const DEFAULT_PING_INTERVAL_MS = 10_000;
+
 // What: Compares two account sets for exact equality.
 // Why: Avoid unnecessary transport writes when desired tracked set is unchanged.
 // How: Compare set sizes then membership.

@@ -101,7 +101,7 @@ export interface GrpcTransportOptions {
   flowControlWindowBytes?: number;
   /** Largest gRPC message the client will accept, in bytes. Defaults to 16 MiB. */
   maxReceiveMessageLengthBytes?: number;
-  /** Time between gRPC keepalive pings, in milliseconds. Defaults to 30 seconds. */
+  /** Time between gRPC keepalive pings, in milliseconds. Defaults to 10 seconds. */
   keepAliveIntervalMs?: number;
   /** Time to wait for a keepalive response, in milliseconds. Defaults to 10 seconds. */
   keepAliveTimeoutMs?: number;
@@ -565,8 +565,8 @@ export declare function toWeb3JsParsedAccountInfo(
  *       flowControlWindowBytes: 16 * 1024 * 1024,
  *       // Largest accepted gRPC message. Defaults to 16 MiB.
  *       maxReceiveMessageLengthBytes: 16 * 1024 * 1024,
- *       // Keepalive ping interval. Defaults to 30 seconds.
- *       keepAliveIntervalMs: 30_000,
+ *       // Keepalive ping interval. Defaults to 10 seconds.
+ *       keepAliveIntervalMs: 10_000,
  *       // Maximum wait for a keepalive response. Defaults to 10 seconds.
  *       keepAliveTimeoutMs: 10_000,
  *       // Send keepalive pings when no call is active. Defaults to true.

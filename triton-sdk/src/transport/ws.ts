@@ -2,7 +2,11 @@ import { Buffer } from "buffer";
 import type { AccountSubscriptionTransport, TransportHandlers } from "../core/transport";
 import type { AccountSyncCommitment } from "../core/types";
 import { SubscribeRequest, SubscribeUpdate } from "../generated/grpc/geyser";
-import { normalizeWsSubscriptionEndpoint, setsEqual } from "./common";
+import {
+  DEFAULT_PING_INTERVAL_MS,
+  normalizeWsSubscriptionEndpoint,
+  setsEqual
+} from "./common";
 import {
   createSubscribeRequest,
   subscribeUpdateToAccountUpdate
@@ -39,6 +43,7 @@ export class WsAccountSubscriptionTransport implements AccountSubscriptionTransp
   private intentionallyClosing = false;
   private closed = false;
   private lifecycleSignal: AbortSignal | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
 
   private appliedAccountIds = new Set<string>();
   private appliedCommitment: AccountSyncCommitment | null = null;
@@ -88,6 +93,7 @@ export class WsAccountSubscriptionTransport implements AccountSubscriptionTransp
 
   public async close(): Promise<void> {
     this.closed = true;
+    this.stopPing();
     await this.enqueue(async () => {
       this.appliedAccountIds.clear();
       this.appliedCommitment = null;
@@ -179,6 +185,7 @@ export class WsAccountSubscriptionTransport implements AccountSubscriptionTransp
         }
         settled = true;
         cleanupSetup();
+        this.startPing(socket);
         resolve();
       };
 
@@ -201,6 +208,7 @@ export class WsAccountSubscriptionTransport implements AccountSubscriptionTransp
       const handleClose = () => {
         if (this.socket === socket) {
           this.socket = null;
+          this.stopPing();
         }
         if (!settled) {
           rejectOpening(
@@ -256,9 +264,33 @@ export class WsAccountSubscriptionTransport implements AccountSubscriptionTransp
     }
 
     this.intentionallyClosing = true;
+    this.stopPing();
     const socketToClose = this.socket;
     this.socket = null;
     socketToClose.close();
+  }
+
+  private startPing(socket: WebSocketLike): void {
+    this.stopPing();
+    this.pingTimer = setInterval(() => this.sendPing(socket), DEFAULT_PING_INTERVAL_MS);
+  }
+
+  private stopPing(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  private sendPing(socket: WebSocketLike): void {
+    if (this.socket !== socket || socket.readyState !== WS_OPEN) {
+      return;
+    }
+    try {
+      socket.send(SubscribeRequest.encode(SubscribeRequest.create({ ping: { id: 1 } })).finish());
+    } catch {
+      // The socket close event reports the failure.
+    }
   }
 
   private sendSubscribeRequest(

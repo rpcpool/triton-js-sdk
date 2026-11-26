@@ -11,7 +11,7 @@ export const ACCOUNT_SYNC_LIMITS = {
 export const GRPC_CHANNEL_OPTIONS = {
   flowControlWindowBytes: 16 * 1024 * 1024,
   maxReceiveMessageLengthBytes: 16 * 1024 * 1024,
-  keepAliveIntervalMs: 30_000,
+  keepAliveIntervalMs: 10_000,
   keepAliveTimeoutMs: 10_000,
   keepAlivePermitWithoutCalls: true,
 } as const;
